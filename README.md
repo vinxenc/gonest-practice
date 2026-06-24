@@ -19,7 +19,7 @@ The server listens on `http://localhost:3000`.
 
 ## Project layout
 
-```
+```text
 .
 ├── go.mod
 ├── go.sum
