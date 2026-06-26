@@ -3,12 +3,15 @@ package core
 import (
 	"context"
 	"log"
+	"net"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humafiber"
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/fx"
 )
+
+const addr = ":3000"
 
 // NewFiber provides the Fiber application instance.
 func NewFiber() *fiber.App {
@@ -25,9 +28,15 @@ func NewHumaAPI(app *fiber.App) huma.API {
 func startServer(lc fx.Lifecycle, app *fiber.App) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
+			// Bind synchronously so listen failures (e.g. port in use)
+			// propagate through fx startup instead of crashing a goroutine.
+			ln, err := net.Listen("tcp", addr)
+			if err != nil {
+				return err
+			}
 			go func() {
-				if err := app.Listen(":3000"); err != nil {
-					log.Fatal(err)
+				if err := app.Listener(ln); err != nil {
+					log.Printf("fiber server stopped: %v", err)
 				}
 			}()
 			return nil
