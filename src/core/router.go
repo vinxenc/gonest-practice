@@ -1,25 +1,31 @@
 package core
 
-import "github.com/danielgtaylor/huma/v2"
+import (
+	"github.com/danielgtaylor/huma/v2"
+	"go.uber.org/fx"
+)
 
 // Controller is implemented by anything that registers Huma routes.
 type Controller interface {
 	RegisterRoutes(api huma.API)
 }
 
-// Module bundles one or more controllers, mirroring a NestJS module that
-// declares the controllers it owns.
-type Module interface {
-	Controllers() []Controller
+// AsController annotates a controller constructor so its result joins the
+// "controllers" value group as a Controller. A module wraps its controller
+// constructor with this inside fx.Provide, so the controller is collected and
+// its routes registered automatically just by including the module — the
+// composition root needs no central list.
+func AsController(constructor any) any {
+	return fx.Annotate(
+		constructor,
+		fx.As(new(Controller)),
+		fx.ResultTags(`group:"controllers"`),
+	)
 }
 
-// registerRoutes mounts every controller of every module onto the Huma API.
-// The module list is assembled explicitly at the composition root, so route
-// registration is a plain loop with no reflection or hidden wiring.
-func registerRoutes(api huma.API, modules []Module) {
-	for _, m := range modules {
-		for _, c := range m.Controllers() {
-			c.RegisterRoutes(api)
-		}
+// registerRoutes mounts every collected controller onto the Huma API.
+func registerRoutes(api huma.API, controllers []Controller) {
+	for _, c := range controllers {
+		c.RegisterRoutes(api)
 	}
 }

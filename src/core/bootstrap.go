@@ -12,7 +12,6 @@ import (
 //
 //	app := core.Server(
 //	    healthModule.HealthModule,
-//	    fx.Provide(provideModules),
 //	)
 //	app.Run()
 //
@@ -31,9 +30,20 @@ func Server(opts ...fx.Option) *fx.App {
 	)
 }
 
-// initServer registers every module's routes onto the Huma API and ties the
-// Fiber server to the fx lifecycle. fx invokes it once during startup.
-func initServer(lc fx.Lifecycle, app *fiber.App, api huma.API, modules []Module) {
-	registerRoutes(api, modules)
-	startServer(lc, app)
+// serverParams collects the dependencies initServer needs, including every
+// controller contributed by a module to the "controllers" value group.
+type serverParams struct {
+	fx.In
+
+	Lifecycle   fx.Lifecycle
+	App         *fiber.App
+	API         huma.API
+	Controllers []Controller `group:"controllers"`
+}
+
+// initServer registers every collected controller's routes onto the Huma API
+// and ties the Fiber server to the fx lifecycle. fx invokes it once at startup.
+func initServer(p serverParams) {
+	registerRoutes(p.API, p.Controllers)
+	startServer(p.Lifecycle, p.App)
 }

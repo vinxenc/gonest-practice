@@ -39,22 +39,23 @@ curl http://localhost:3000/health
 ## Architecture
 
 The app follows a NestJS-style module layout. Each feature is a self-contained
-`fx.Module` with its own Repository → Service → Controller layers. The `core`
-package provides the HTTP server and registers the routes of every feature
-module supplied to it as an explicit `[]core.Module` list.
+`fx.Module` with its own Repository → Service → Controller layers. Each module
+contributes its controller(s) to a `"controllers"` fx value group, and `core`
+collects the whole group and registers every route — so a module is wired up
+just by including it.
 
 ```text
 src/
-├── main.go                      # composes fx modules + lists feature modules
+├── main.go                      # bootstraps via core.Server(...)
 ├── core/
 │   ├── bootstrap.go             # core.Server factory + initServer (NestFactory-like)
 │   ├── doc.go                   # package design & rationale
-│   ├── router.go                # Controller/Module interfaces, registerRoutes loop
+│   ├── router.go                # Controller interface, AsController, registerRoutes
 │   ├── router_test.go
 │   └── server.go                # Fiber + Huma providers and server lifecycle
 └── modules/
     └── healthModule/            # example feature module
-        ├── health.module.go     # fx providers + Module (Controllers())
+        ├── health.module.go     # fx providers + AsController(HealthController)
         ├── health.controller.go # registers Huma routes
         ├── health.service.go    # business logic
         ├── health.repository.go # data-access layer
@@ -68,64 +69,47 @@ there is no hand-written intra-module wiring, and the server lifecycle
 (start/stop) is managed by fx hooks.
 
 `main.go` bootstraps the app with the `core.Server(...)` factory — analogous to
-NestJS's `NestFactory.create(AppModule)` — passing the feature modules and the
-explicit list of modules to register, then calls `Run`:
+NestJS's `NestFactory.create(AppModule)` — passing the feature modules, then
+calls `Run`. Including a module is all that's needed:
 
 ```go
-func provideModules(health *healthModule.Controller) []core.Module {
-    return []core.Module{
-        healthModule.NewModule(health),
-    }
-}
-
 func main() {
     app := core.Server(
         healthModule.HealthModule,
-        fx.Provide(provideModules),
     )
     app.Run()
 }
 ```
 
 `core.Server` provides the Fiber + Huma server and registers a single
-`initServer` invoke, which triggers `registerRoutes` and then ties the server to
-the fx lifecycle.
+`initServer` invoke, which collects every controller in the `"controllers"`
+group, triggers `registerRoutes`, and then ties the server to the fx lifecycle.
 
 ### Route registration
 
-A feature is expressed through two small contracts in `core`:
-
-- `Controller` — anything with `RegisterRoutes(api huma.API)`.
-- `Module` — bundles a feature's controllers: `Controllers() []Controller`.
-
-`core` registers everything with a plain nested loop — for each module, for each
-controller, call `RegisterRoutes`. The module list is explicit and owned by the
-composition root, so registration order is visible and greppable (no reflection
-or hidden value groups).
+A controller is anything implementing `core.Controller`
+(`RegisterRoutes(api huma.API)`). A module contributes its controller to the
+`"controllers"` group with `core.AsController(...)`, and `core` registers every
+collected controller with a plain loop — no central list to maintain.
 
 To add a new feature module:
 
 1. Create `src/modules/<name>Module/` with a Repository, Service, and a
    Controller exposing `RegisterRoutes(api huma.API)`.
-2. Declare its `fx.Module` (providers) and a `Module` type bundling its
-   controllers:
+2. Declare its `fx.Module`, wrapping the controller constructor with
+   `core.AsController(...)`:
 
    ```go
    var FooModule = fx.Module("FooModule",
-       fx.Provide(NewFooRepository, NewFooService, NewFooController),
+       fx.Provide(
+           NewFooRepository,
+           NewFooService,
+           core.AsController(NewFooController),
+       ),
    )
-
-   type Module struct{ controllers []core.Controller }
-
-   func NewModule(foo *Controller) *Module {
-       return &Module{controllers: []core.Controller{foo}}
-   }
-
-   func (m *Module) Controllers() []core.Controller { return m.controllers }
    ```
 
-3. Pass its `fx.Module` to `core.Server(...)` and add its `Module` to
-   `provideModules` in `main.go`.
+3. Pass its `fx.Module` to `core.Server(...)` in `main.go`.
 
 ## Development
 

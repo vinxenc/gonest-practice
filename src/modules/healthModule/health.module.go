@@ -7,29 +7,13 @@ import (
 )
 
 // HealthModule wires the health feature's providers (repository, service,
-// controller) for dependency injection, analogous to a NestJS module.
+// controller) for dependency injection. The controller is contributed to the
+// "controllers" group via core.AsController, so its routes register
+// automatically just by including this module — no central list.
 var HealthModule = fx.Module("HealthModule",
 	fx.Provide(
 		HealthRepository,
 		HealthService,
-		HealthController,
+		core.AsController(HealthController),
 	),
 )
-
-// Module bundles the health feature's controllers so the composition root can
-// register their routes. It implements core.Module.
-type Module struct {
-	controllers []core.Controller
-}
-
-// NewModule builds the health Module from its controllers.
-func NewModule(controller *Controller) *Module {
-	return &Module{
-		controllers: []core.Controller{controller},
-	}
-}
-
-// Controllers returns the controllers owned by the health module.
-func (m *Module) Controllers() []core.Controller {
-	return m.controllers
-}

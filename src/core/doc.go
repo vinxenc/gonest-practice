@@ -4,22 +4,19 @@
 //
 // # The model
 //
-// A feature is expressed as two small contracts:
+// A controller is anything that registers Huma routes:
 //
-//   - Controller is anything that registers Huma routes: a single
-//     RegisterRoutes(huma.API) method.
-//   - Module bundles the controllers a feature owns: Controllers() []Controller.
-//     This mirrors a NestJS module that declares its controllers.
+//	type Controller interface {
+//	    RegisterRoutes(api huma.API)
+//	}
 //
-// The set of modules is assembled explicitly at the composition root (main) as
-// a []Module, and core registers them with a plain nested loop — for each
-// module, for each controller, call RegisterRoutes:
+// Each feature module contributes its controller(s) to a "controllers" fx value
+// group with AsController, and core collects the whole group and registers each
+// one with a plain loop:
 //
-//	func registerRoutes(api huma.API, modules []Module) {
-//	    for _, m := range modules {
-//	        for _, c := range m.Controllers() {
-//	            c.RegisterRoutes(api)
-//	        }
+//	func registerRoutes(api huma.API, controllers []Controller) {
+//	    for _, c := range controllers {
+//	        c.RegisterRoutes(api)
 //	    }
 //	}
 //
@@ -31,30 +28,27 @@
 //
 //	app := core.Server(
 //	    healthModule.HealthModule,
-//	    fx.Provide(provideModules),
 //	)
 //	app.Run()
 //
-// initServer is the single fx.Invoke that triggers registerRoutes and then ties
-// the server to the fx lifecycle (startServer). Modules are passed as options
-// rather than a pre-built fx.App, because their providers must be registered
-// before fx builds the dependency graph.
+// initServer is the single fx.Invoke. It collects every controller in the
+// "controllers" group (via the serverParams fx.In struct), triggers
+// registerRoutes, and ties the server to the fx lifecycle (startServer).
+// Modules are passed as options rather than a pre-built fx.App, because their
+// providers must be registered before fx builds the dependency graph.
 //
-// # Why an explicit module list
+// # Why a value group
 //
-// Registration is driven by a list the composition root owns, rather than by
-// auto-discovery:
+// Registration is driven by what modules contribute, not by a central list:
 //
-//   - Discoverability: every registered module is visible in one place
-//     (provideModules in main), and the registration order is explicit and
-//     greppable — no reflection, tags, or hidden value groups to reason about.
-//   - Simplicity: registerRoutes is an ordinary loop that is trivial to read and
-//     unit-test; misuse is a compile error, not a runtime surprise.
-//   - Modules own their controllers: a feature can expose several controllers
-//     from one Module, keeping related routes together.
-//
-// The trade-off is that adding a feature means editing the central list (adding
-// the module to provideModules), which is an accepted cost for the explicitness.
+//   - Self-contained modules: a module registers its routes simply by being
+//     included in Server(...). Including healthModule.HealthModule is enough;
+//     there is no separate place to also list its controller.
+//   - Open/closed: adding a feature touches only that feature and the Server(...)
+//     option list — never core, and never a central registration function.
+//   - AsController marks intent: the one-line wrapper at the provider makes a
+//     controller's membership explicit and greppable, while the collection and
+//     ordering are handled generically by fx.
 //
 // # Why still fx
 //
@@ -62,8 +56,9 @@
 //
 //   - Dependency injection: fx resolves each module's
 //     Repository -> Service -> Controller graph by type, so there is no
-//     hand-written intra-module wiring. provideModules only declares which
-//     modules exist; their dependencies are injected.
+//     hand-written intra-module wiring.
+//   - Collection: the "controllers" value group gathers controllers from every
+//     module without the composition root knowing their concrete types.
 //   - Lifecycle: fx hooks start and gracefully stop the Fiber server alongside
 //     the rest of the application (see startServer).
 //
