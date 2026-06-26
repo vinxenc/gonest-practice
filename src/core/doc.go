@@ -23,6 +23,23 @@
 //	    }
 //	}
 //
+// # Bootstrap
+//
+// Server is the bootstrap entry point, analogous to NestJS's
+// NestFactory.create(AppModule). It takes feature-module options, provides the
+// Fiber + Huma server, and wires fx to invoke initServer:
+//
+//	app := core.Server(
+//	    healthModule.HealthModule,
+//	    fx.Provide(provideModules),
+//	)
+//	app.Run()
+//
+// initServer is the single fx.Invoke that triggers registerRoutes and then ties
+// the server to the fx lifecycle (startServer). Modules are passed as options
+// rather than a pre-built fx.App, because their providers must be registered
+// before fx builds the dependency graph.
+//
 // # Why an explicit module list
 //
 // Registration is driven by a list the composition root owns, rather than by

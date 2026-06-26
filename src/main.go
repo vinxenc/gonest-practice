@@ -17,9 +17,9 @@ func provideModules(health *healthModule.Controller) []core.Module {
 }
 
 func main() {
-	fx.New(
-		core.Server,
+	app := core.Server(
 		healthModule.HealthModule,
 		fx.Provide(provideModules),
-	).Run()
+	)
+	app.Run()
 }

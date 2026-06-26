@@ -47,7 +47,7 @@ module supplied to it as an explicit `[]core.Module` list.
 src/
 ├── main.go                      # composes fx modules + lists feature modules
 ├── core/
-│   ├── core.module.go           # core.Server: provides Fiber + Huma, invokes once
+│   ├── bootstrap.go             # core.Server factory + initServer (NestFactory-like)
 │   ├── doc.go                   # package design & rationale
 │   ├── router.go                # Controller/Module interfaces, registerRoutes loop
 │   ├── router_test.go
@@ -65,8 +65,11 @@ src/
 
 fx resolves each module's `Repository → Service → Controller` graph by type, so
 there is no hand-written intra-module wiring, and the server lifecycle
-(start/stop) is managed by fx hooks. `main.go` composes the fx modules and
-declares the explicit list of feature modules to register:
+(start/stop) is managed by fx hooks.
+
+`main.go` bootstraps the app with the `core.Server(...)` factory — analogous to
+NestJS's `NestFactory.create(AppModule)` — passing the feature modules and the
+explicit list of modules to register, then calls `Run`:
 
 ```go
 func provideModules(health *healthModule.Controller) []core.Module {
@@ -76,13 +79,17 @@ func provideModules(health *healthModule.Controller) []core.Module {
 }
 
 func main() {
-    fx.New(
-        core.Server,
+    app := core.Server(
         healthModule.HealthModule,
         fx.Provide(provideModules),
-    ).Run()
+    )
+    app.Run()
 }
 ```
+
+`core.Server` provides the Fiber + Huma server and registers a single
+`initServer` invoke, which triggers `registerRoutes` and then ties the server to
+the fx lifecycle.
 
 ### Route registration
 
@@ -117,8 +124,8 @@ To add a new feature module:
    func (m *Module) Controllers() []core.Controller { return m.controllers }
    ```
 
-3. Add its `fx.Module` to `fx.New(...)` and its `Module` to `provideModules` in
-   `main.go`.
+3. Pass its `fx.Module` to `core.Server(...)` and add its `Module` to
+   `provideModules` in `main.go`.
 
 ## Development
 
