@@ -19,4 +19,11 @@ pre-commit:
 pre-push:
   commands:
     test:
-      run: go test ./...
+      run: go test -cover ./...
+
+# Manually runnable: `lefthook run test`
+# Runs the unit tests, writes a coverage profile, and prints total coverage.
+test:
+  commands:
+    unit:
+      run: go test -coverprofile=coverage.out -covermode=atomic ./... && go tool cover -func=coverage.out | tail -1
