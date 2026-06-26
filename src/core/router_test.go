@@ -1,71 +1,40 @@
 package core
 
 import (
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
 )
 
-type fakeRoute struct{}
+type recordingController struct{ calls int }
 
-func (fakeRoute) RegisterRoutes(huma.API) {}
+func (c *recordingController) RegisterRoutes(huma.API) { c.calls++ }
 
-func newFakeRoute() *fakeRoute { return &fakeRoute{} }
+type fakeModule struct{ controllers []Controller }
 
-func newRouteWithError() (*fakeRoute, error) { return &fakeRoute{}, nil }
+func (m fakeModule) Controllers() []Controller { return m.controllers }
 
-func newNonRoute() *struct{} { return &struct{}{} }
+func TestRegisterRoutes_RegistersEveryControllerPerModule(t *testing.T) {
+	c1 := &recordingController{}
+	c2 := &recordingController{}
+	c3 := &recordingController{}
 
-func newRouteWithExtra() (*fakeRoute, *struct{}) { return &fakeRoute{}, &struct{}{} }
+	modules := []Module{
+		fakeModule{controllers: []Controller{c1, c2}},
+		fakeModule{controllers: []Controller{c3}},
+	}
 
-func newRouteSecondPosition() (*struct{}, *fakeRoute) { return &struct{}{}, &fakeRoute{} }
+	// The fake controllers ignore the API, so a nil value is fine here.
+	registerRoutes(nil, modules)
 
-func TestAsRoute_AcceptsRouteConstructor(t *testing.T) {
-	if got := AsRoute(newFakeRoute); got == nil {
-		t.Fatal("AsRoute returned nil for a valid Route constructor")
+	for i, c := range []*recordingController{c1, c2, c3} {
+		if c.calls != 1 {
+			t.Fatalf("controller %d: got %d RegisterRoutes calls, want 1", i, c.calls)
+		}
 	}
 }
 
-func TestAsRoute_AcceptsRouteWithErrorConstructor(t *testing.T) {
-	if got := AsRoute(newRouteWithError); got == nil {
-		t.Fatal("AsRoute returned nil for a (Route, error) constructor")
-	}
-}
-
-func TestAsRoute_PanicsOnNonFunction(t *testing.T) {
-	defer func() {
-		if msg := fmt.Sprint(recover()); !strings.Contains(msg, "constructor must be a function") {
-			t.Fatalf("unexpected panic: %v", msg)
-		}
-	}()
-	AsRoute("not a function")
-}
-
-func TestAsRoute_PanicsWhenResultIsNotRoute(t *testing.T) {
-	defer func() {
-		if msg := fmt.Sprint(recover()); !strings.Contains(msg, "must return Route or (Route, error)") {
-			t.Fatalf("unexpected panic: %v", msg)
-		}
-	}()
-	AsRoute(newNonRoute)
-}
-
-func TestAsRoute_PanicsOnExtraNonErrorResult(t *testing.T) {
-	defer func() {
-		if msg := fmt.Sprint(recover()); !strings.Contains(msg, "must return Route or (Route, error)") {
-			t.Fatalf("unexpected panic: %v", msg)
-		}
-	}()
-	AsRoute(newRouteWithExtra)
-}
-
-func TestAsRoute_PanicsWhenRouteNotFirst(t *testing.T) {
-	defer func() {
-		if msg := fmt.Sprint(recover()); !strings.Contains(msg, "must return Route or (Route, error)") {
-			t.Fatalf("unexpected panic: %v", msg)
-		}
-	}()
-	AsRoute(newRouteSecondPosition)
+func TestRegisterRoutes_NoModules(t *testing.T) {
+	// Must not panic when there are no modules to register.
+	registerRoutes(nil, nil)
 }

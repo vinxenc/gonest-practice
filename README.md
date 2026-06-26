@@ -39,21 +39,22 @@ curl http://localhost:3000/health
 ## Architecture
 
 The app follows a NestJS-style module layout. Each feature is a self-contained
-`fx.Module` with its own Repository → Service → Controller layers, and the
-`core` module wires up the HTTP server and registers every module's routes
-automatically.
+`fx.Module` with its own Repository → Service → Controller layers. The `core`
+package provides the HTTP server and registers the routes of every feature
+module supplied to it as an explicit `[]core.Module` list.
 
 ```text
 src/
-├── main.go                      # composes fx modules and runs the app
+├── main.go                      # composes fx modules + lists feature modules
 ├── core/
-│   ├── core.module.go           # fx.Module: provides Fiber + Huma, invokes once
-│   ├── router.go                # Route interface, AsRoute helper, registerRoutes
+│   ├── core.module.go           # core.Server: provides Fiber + Huma, invokes once
+│   ├── doc.go                   # package design & rationale
+│   ├── router.go                # Controller/Module interfaces, registerRoutes loop
 │   ├── router_test.go
 │   └── server.go                # Fiber + Huma providers and server lifecycle
 └── modules/
     └── healthModule/            # example feature module
-        ├── health.module.go     # fx.Module("HealthModule", fx.Provide(...))
+        ├── health.module.go     # fx providers + Module (Controllers())
         ├── health.controller.go # registers Huma routes
         ├── health.service.go    # business logic
         ├── health.repository.go # data-access layer
@@ -62,42 +63,62 @@ src/
 
 ### Dependency injection with fx
 
-`main.go` only composes modules — there is no manual wiring:
+fx resolves each module's `Repository → Service → Controller` graph by type, so
+there is no hand-written intra-module wiring, and the server lifecycle
+(start/stop) is managed by fx hooks. `main.go` composes the fx modules and
+declares the explicit list of feature modules to register:
 
 ```go
-fx.New(
-    core.Module,
-    healthModule.HealthModule,
-).Run()
+func provideModules(health *healthModule.Controller) []core.Module {
+    return []core.Module{
+        healthModule.NewModule(health),
+    }
+}
+
+func main() {
+    fx.New(
+        core.Server,
+        healthModule.HealthModule,
+        fx.Provide(provideModules),
+    ).Run()
+}
 ```
 
-fx resolves the `Repository → Service → Controller` graph by type, and the
-server lifecycle (start/stop) is managed by fx hooks.
+### Route registration
 
-### Automatic route registration
+A feature is expressed through two small contracts in `core`:
 
-Controllers join a `"routes"` fx value group via `core.AsRoute(...)`, and the
-`core` module consumes the whole group to register every route. Adding a module
-requires **no changes** to central wiring.
+- `Controller` — anything with `RegisterRoutes(api huma.API)`.
+- `Module` — bundles a feature's controllers: `Controllers() []Controller`.
+
+`core` registers everything with a plain nested loop — for each module, for each
+controller, call `RegisterRoutes`. The module list is explicit and owned by the
+composition root, so registration order is visible and greppable (no reflection
+or hidden value groups).
 
 To add a new feature module:
 
 1. Create `src/modules/<name>Module/` with a Repository, Service, and a
    Controller exposing `RegisterRoutes(api huma.API)`.
-2. Declare its `fx.Module`, wrapping the controller constructor with
-   `core.AsRoute(...)`:
+2. Declare its `fx.Module` (providers) and a `Module` type bundling its
+   controllers:
 
    ```go
    var FooModule = fx.Module("FooModule",
-       fx.Provide(
-           NewFooRepository,
-           NewFooService,
-           core.AsRoute(NewFooController),
-       ),
+       fx.Provide(NewFooRepository, NewFooService, NewFooController),
    )
+
+   type Module struct{ controllers []core.Controller }
+
+   func NewModule(foo *Controller) *Module {
+       return &Module{controllers: []core.Controller{foo}}
+   }
+
+   func (m *Module) Controllers() []core.Controller { return m.controllers }
    ```
 
-3. Add the module to `fx.New(...)` in `main.go`.
+3. Add its `fx.Module` to `fx.New(...)` and its `Module` to `provideModules` in
+   `main.go`.
 
 ## Development
 

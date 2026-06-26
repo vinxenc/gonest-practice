@@ -2,9 +2,9 @@ package core
 
 import "go.uber.org/fx"
 
-// Module provides the HTTP server (Fiber + Huma) and automatically registers
-// every Route contributed to the "routes" group by feature modules.
-var Module = fx.Module("core",
+// Server provides the HTTP server (Fiber + Huma), registers the routes of every
+// feature module supplied as []Module, and manages the server lifecycle.
+var Server = fx.Module("core",
 	fx.Provide(
 		NewFiber,
 		NewHumaAPI,

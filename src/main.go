@@ -7,9 +7,19 @@ import (
 	"gonest-practice/src/modules/healthModule"
 )
 
+// provideModules is the explicit list of feature modules registered with the
+// server. fx injects each module's dependencies; to add a feature, add its
+// module here (and its fx.Module to fx.New below).
+func provideModules(health *healthModule.Controller) []core.Module {
+	return []core.Module{
+		healthModule.NewModule(health),
+	}
+}
+
 func main() {
 	fx.New(
-		core.Module,
+		core.Server,
 		healthModule.HealthModule,
+		fx.Provide(provideModules),
 	).Run()
 }

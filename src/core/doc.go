@@ -1,66 +1,54 @@
 // Package core is the application's composition root. It provides the HTTP
-// server (Fiber + Huma) and wires every feature module's routes automatically,
-// so feature modules stay decoupled from the bootstrap code.
+// server (Fiber + Huma), registers every feature module's routes, and manages
+// the server lifecycle.
 //
-// # The problem
+// # The model
 //
-// In a naive setup, main (or some central function) imports every controller
-// and registers each route by hand:
+// A feature is expressed as two small contracts:
 //
-//	health.RegisterRoutes(api)
-//	users.RegisterRoutes(api)
-//	orders.RegisterRoutes(api)  // ...and one more line for every new module
+//   - Controller is anything that registers Huma routes: a single
+//     RegisterRoutes(huma.API) method.
+//   - Module bundles the controllers a feature owns: Controllers() []Controller.
+//     This mirrors a NestJS module that declares its controllers.
 //
-// That central list is a magnet for merge conflicts and is easy to forget to
-// update. The bootstrap code has to know about every module, so modules are not
-// really independent — adding one means editing shared code (it violates the
-// open/closed principle: the system is not open for extension without
-// modification).
+// The set of modules is assembled explicitly at the composition root (main) as
+// a []Module, and core registers them with a plain nested loop — for each
+// module, for each controller, call RegisterRoutes:
 //
-// # The solution
+//	func registerRoutes(api huma.API, modules []Module) {
+//	    for _, m := range modules {
+//	        for _, c := range m.Controllers() {
+//	            c.RegisterRoutes(api)
+//	        }
+//	    }
+//	}
 //
-// core inverts the dependency using an fx value group. Instead of core
-// reaching out to each module, every module contributes its controller into a
-// shared "routes" group, and core consumes the whole group in one place:
+// # Why an explicit module list
 //
-//   - Route is the contract a controller satisfies to be auto-registered:
-//     a single RegisterRoutes(huma.API) method.
+// Registration is driven by a list the composition root owns, rather than by
+// auto-discovery:
 //
-//   - AsRoute wraps a controller constructor so its result is provided into the
-//     "routes" group as a Route (via fx.As + fx.ResultTags). A module uses it
-//     inside its own fx.Provide, so the module — not core — declares membership:
+//   - Discoverability: every registered module is visible in one place
+//     (provideModules in main), and the registration order is explicit and
+//     greppable — no reflection, tags, or hidden value groups to reason about.
+//   - Simplicity: registerRoutes is an ordinary loop that is trivial to read and
+//     unit-test; misuse is a compile error, not a runtime surprise.
+//   - Modules own their controllers: a feature can expose several controllers
+//     from one Module, keeping related routes together.
 //
-//     var HealthModule = fx.Module("HealthModule",
-//     fx.Provide(
-//     NewRepository,
-//     NewService,
-//     core.AsRoute(NewController),
-//     ),
-//     )
+// The trade-off is that adding a feature means editing the central list (adding
+// the module to provideModules), which is an accepted cost for the explicitness.
 //
-//   - registerRoutes receives every Route in the group (via the routeParams
-//     fx.In struct, tagged group:"routes") and mounts them all onto the Huma
-//     API. core.Module runs this once with fx.Invoke.
+// # Why still fx
 //
-// The result: main only lists modules, and adding a feature requires zero edits
-// to core. The wiring direction is module -> core, never core -> module.
+// fx is kept for what it is good at:
 //
-// # Why fx (and value groups)
-//
-//   - Decoupling / extensibility: new modules plug in without touching shared
-//     code, which removes the central-list merge-conflict hot spot.
-//   - Construction by type: fx resolves the Repository -> Service -> Controller
-//     graph automatically, so there is no hand-written wiring to keep in sync.
+//   - Dependency injection: fx resolves each module's
+//     Repository -> Service -> Controller graph by type, so there is no
+//     hand-written intra-module wiring. provideModules only declares which
+//     modules exist; their dependencies are injected.
 //   - Lifecycle: fx hooks start and gracefully stop the Fiber server alongside
 //     the rest of the application (see startServer).
-//
-// # Why AsRoute validates eagerly
-//
-// fx.As and fx.ResultTags map positionally to a constructor's first result, so
-// only func(...) Route and func(...) (Route, error) can be annotated correctly.
-// AsRoute checks the constructor's shape with reflection and panics at startup
-// with a clear, domain-specific message on misuse, instead of letting it surface
-// later as an opaque fx wiring error.
 //
 // # Why the listener is opened synchronously
 //
