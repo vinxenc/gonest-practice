@@ -133,7 +133,7 @@ Hooks:
 
 - **pre-commit** — `golangci-lint fmt`, `go vet`, and `golangci-lint run --fix`
   (auto-fixes are restaged).
-- **pre-push** — `go test ./...`.
+- **pre-push** — `make test` (`go test -cover ./...`).
 
 Run them manually:
 
