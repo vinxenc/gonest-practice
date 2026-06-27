@@ -1,0 +1,7 @@
+# Configuration for github.com/vladopajic/go-test-coverage
+# Path to the coverage profile produced by `go test -coverprofile`.
+profile: cover.out
+
+# Fail when total module statement coverage drops below this percentage.
+threshold:
+  total: 90

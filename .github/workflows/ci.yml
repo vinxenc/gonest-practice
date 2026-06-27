@@ -45,24 +45,17 @@ jobs:
           go-version-file: go.mod
 
       - name: Test with coverage
-        env:
-          COVERAGE_THRESHOLD: "90"
-        run: |
-          go test -coverprofile=coverage.out -covermode=atomic ./...
-          go tool cover -func=coverage.out | tail -1
-          total=$(go tool cover -func=coverage.out | awk 'END { gsub(/%/, "", $NF); print $NF }')
-          awk -v total="$total" -v min="$COVERAGE_THRESHOLD" 'BEGIN {
-            printf "total coverage: %s%% (minimum: %s%%)\n", total, min
-            if (total + 0 < min + 0) {
-              printf "FAIL: coverage %s%% is below the %s%% threshold\n", total, min
-              exit 1
-            }
-          }'
+        run: go test ./... -coverprofile=cover.out -covermode=atomic
+
+      - name: Check coverage threshold
+        uses: vladopajic/go-test-coverage@a93b868a4cbcbf18dc3781650fad241f0020e609 # v2.18.8
+        with:
+          config: ./.testcoverage.yml
 
       - name: Upload coverage profile
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage
-          path: coverage.out
+          path: cover.out
           if-no-files-found: ignore

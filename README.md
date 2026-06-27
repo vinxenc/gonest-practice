@@ -169,6 +169,15 @@ go test ./...
 go tool golangci-lint run ./...
 ```
 
+CI enforces a minimum total statement coverage of 90% using
+[go-test-coverage](https://github.com/vladopajic/go-test-coverage), configured
+by [`.testcoverage.yml`](.testcoverage.yml). Check it locally the same way CI
+does:
+
+```bash
+go tool lefthook run test   # runs the tests and the coverage threshold check
+```
+
 ## Build
 
 The entry package lives in `src/`, so pass an explicit output path with `-o`
