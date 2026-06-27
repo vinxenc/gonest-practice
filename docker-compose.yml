@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: gonest-employees-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: employees
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist data across restarts.
+      - pgdata:/var/lib/postgresql/data
+      # The sample dump, mounted read-only so it can be restored with
+      # `docker compose exec postgres pg_restore ... /dump/employees.sql.gz`.
+      # See the README "Database" section for the import steps.
+      - ./db/dump:/dump:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d employees"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

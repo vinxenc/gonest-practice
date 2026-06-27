@@ -55,6 +55,61 @@ func TestLoad_NonNumericPort(t *testing.T) {
 	}
 }
 
+// TestSettings_DatabaseDSN verifies the DSN is built from the database settings
+// as a PostgreSQL connection URL.
+func TestSettings_DatabaseDSN(t *testing.T) {
+	s := Settings{
+		DBHost:     "db.example.com",
+		DBPort:     5433,
+		DBUser:     "alice",
+		DBPassword: "s3cret",
+		DBName:     "employees",
+		DBSSLMode:  "require",
+	}
+	want := "postgres://alice:s3cret@db.example.com:5433/employees?sslmode=require"
+	if got := s.DatabaseDSN(); got != want {
+		t.Fatalf("DatabaseDSN() = %q, want %q", got, want)
+	}
+}
+
+// TestSettings_DatabaseDSN_EscapesCredentials verifies special characters in the
+// user, password, and database name are percent-encoded so the DSN stays valid.
+func TestSettings_DatabaseDSN_EscapesCredentials(t *testing.T) {
+	s := Settings{
+		DBHost:     "localhost",
+		DBPort:     5432,
+		DBUser:     "foo bar",
+		DBPassword: "p@ss:w/rd?",
+		DBName:     "my db",
+		DBSSLMode:  "disable",
+	}
+	want := "postgres://foo%20bar:p%40ss%3Aw%2Frd%3F@localhost:5432/my%20db?sslmode=disable"
+	if got := s.DatabaseDSN(); got != want {
+		t.Fatalf("DatabaseDSN() = %q, want %q", got, want)
+	}
+}
+
+// TestLoad_DatabaseDefaults verifies the database settings fall back to their
+// defaults and produce a localhost DSN when nothing is set.
+func TestLoad_DatabaseDefaults(t *testing.T) {
+	// Clear any ambient config so the defaults are what's exercised, regardless
+	// of the developer's shell or CI environment.
+	for _, k := range []string{
+		"PORT", "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE",
+	} {
+		t.Setenv(k, "")
+	}
+
+	s, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	want := "postgres://postgres:postgres@localhost:5432/employees?sslmode=disable"
+	if got := s.DatabaseDSN(); got != want {
+		t.Fatalf("default DatabaseDSN() = %q, want %q", got, want)
+	}
+}
+
 // TestSettings_Validate verifies the validate method directly across boundary
 // values.
 func TestSettings_Validate(t *testing.T) {

@@ -6,6 +6,9 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 
 	envvalidator "github.com/philiprehberger/go-env-validator"
 )
@@ -19,6 +22,35 @@ const maxPort = 65535
 type Settings struct {
 	// Port is the TCP port the HTTP server listens on.
 	Port int `env:"PORT,default=3000"`
+
+	// DBHost is the PostgreSQL server hostname.
+	DBHost string `env:"DB_HOST,default=localhost"`
+	// DBPort is the PostgreSQL server port.
+	DBPort int `env:"DB_PORT,default=5432"`
+	// DBUser is the PostgreSQL user to connect as.
+	DBUser string `env:"DB_USER,default=postgres"`
+	// DBPassword is the PostgreSQL user's password.
+	DBPassword string `env:"DB_PASSWORD,default=postgres"`
+	// DBName is the PostgreSQL database to connect to.
+	DBName string `env:"DB_NAME,default=employees"`
+	// DBSSLMode is the libpq sslmode (disable, require, verify-full, ...).
+	DBSSLMode string `env:"DB_SSLMODE,default=disable"`
+}
+
+// DatabaseDSN builds a PostgreSQL connection URL from the database settings,
+// suitable for passing to the GORM PostgreSQL driver. The URL form is used (over
+// libpq keyword/value) so net/url percent-encodes the user, password, and
+// database name — values containing spaces, '=', or other special characters
+// would otherwise produce an invalid DSN.
+func (s Settings) DatabaseDSN() string {
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(s.DBUser, s.DBPassword),
+		Host:     net.JoinHostPort(s.DBHost, strconv.Itoa(s.DBPort)),
+		Path:     "/" + s.DBName,
+		RawQuery: url.Values{"sslmode": {s.DBSSLMode}}.Encode(),
+	}
+	return u.String()
 }
 
 // validate performs semantic checks that the `env` struct tags cannot express,
