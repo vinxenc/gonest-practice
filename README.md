@@ -119,9 +119,15 @@ linting/formatting by [golangci-lint](https://golangci-lint.run/).
 Install the tools and the hooks:
 
 ```bash
-brew install lefthook golangci-lint
-lefthook install
+make install-tools   # go install lefthook + golangci-lint (no brew required)
+make install-hooks   # lefthook install
 ```
+
+> `make install-tools` puts the binaries in `$(go env GOPATH)/bin` — make sure
+> that's on your `PATH`. Prefer Homebrew? `brew install lefthook golangci-lint`
+> works too. Note the `/v2` suffix is required when installing lefthook with
+> `go install` (`github.com/evilmartians/lefthook/v2@latest`), otherwise you get
+> the latest v1.
 
 Hooks:
 
