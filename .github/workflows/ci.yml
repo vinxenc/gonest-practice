@@ -51,4 +51,12 @@ jobs:
           go-version-file: go.mod
 
       - name: Test with coverage
-        run: make test-cover
+        run: make cover-check
+
+      - name: Upload coverage profile
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: ignore
