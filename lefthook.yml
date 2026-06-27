@@ -19,4 +19,11 @@ pre-commit:
 pre-push:
   commands:
     test:
-      run: go test ./...
+      run: make test
+
+# Manually runnable: `lefthook run test`
+# Runs the unit tests with a coverage profile and prints total coverage.
+test:
+  commands:
+    cover:
+      run: make test-cover

@@ -1,6 +1,9 @@
 # gonest-practice
 
-A simple [Fiber](https://gofiber.io/) web server written in Go.
+A [Fiber](https://gofiber.io/) web server in Go organized in a NestJS-style
+modular architecture, using [Uber fx](https://uber-go.github.io/fx/) for
+dependency injection and [Huma](https://huma.rocks/) for automatic OpenAPI
+generation.
 
 ## Requirements
 
@@ -17,27 +20,126 @@ go run ./src
 
 The server listens on `http://localhost:3000`.
 
-## Project layout
-
-```text
-.
-├── go.mod
-├── go.sum
-└── src/
-    └── main.go   # entry point (package main)
-```
-
 ## Endpoints
 
-| Method | Path      | Description          | Response          |
-| ------ | --------- | -------------------- | ----------------- |
-| GET    | `/health` | Health check         | `{"status":"ok"}` |
+| Method | Path            | Description                          | Response          |
+| ------ | --------------- | ------------------------------------ | ----------------- |
+| GET    | `/health`       | Health check                         | `{"status":"ok"}` |
+| GET    | `/docs`         | Swagger UI (interactive API docs)    | HTML              |
+| GET    | `/openapi.json` | Auto-generated OpenAPI 3.1 spec      | JSON              |
 
-Example:
+The OpenAPI spec and docs are generated automatically by Huma from the
+registered operations — no separate spec file to maintain.
 
 ```bash
 curl http://localhost:3000/health
 # {"status":"ok"}
+```
+
+## Architecture
+
+The app follows a NestJS-style module layout. Each feature is a self-contained
+`fx.Module` with its own Repository → Service → Controller layers. Each module
+contributes its controller(s) to a `"controllers"` fx value group, and `core`
+collects the whole group and registers every route — so a module is wired up
+just by including it.
+
+```text
+src/
+├── main.go                      # bootstraps via core.Server(...)
+├── core/
+│   ├── bootstrap.go             # core.Server factory + initServer (NestFactory-like)
+│   ├── doc.go                   # package design & rationale
+│   ├── router.go                # Controller interface, AsController, registerRoutes
+│   ├── router_test.go
+│   └── server.go                # Fiber + Huma providers and server lifecycle
+└── modules/
+    └── healthModule/            # example feature module
+        ├── health.module.go     # fx providers + AsController(HealthController)
+        ├── health.controller.go # registers Huma routes
+        ├── health.service.go    # business logic
+        ├── health.repository.go # data-access layer
+        └── health.dto.go        # request/response types
+```
+
+### Dependency injection with fx
+
+fx resolves each module's `Repository → Service → Controller` graph by type, so
+there is no hand-written intra-module wiring, and the server lifecycle
+(start/stop) is managed by fx hooks.
+
+`main.go` bootstraps the app with the `core.Server(...)` factory — analogous to
+NestJS's `NestFactory.create(AppModule)` — passing the feature modules, then
+calls `Run`. Including a module is all that's needed:
+
+```go
+func main() {
+    app := core.Server(
+        healthModule.HealthModule,
+    )
+    app.Run()
+}
+```
+
+`core.Server` provides the Fiber + Huma server and registers a single
+`initServer` invoke, which collects every controller in the `"controllers"`
+group, triggers `registerRoutes`, and then ties the server to the fx lifecycle.
+
+### Route registration
+
+A controller is anything implementing `core.Controller`
+(`RegisterRoutes(api huma.API)`). A module contributes its controller to the
+`"controllers"` group with `core.AsController(...)`, and `core` registers every
+collected controller with a plain loop — no central list to maintain.
+
+To add a new feature module:
+
+1. Create `src/modules/<name>Module/` with a Repository, Service, and a
+   Controller exposing `RegisterRoutes(api huma.API)`.
+2. Declare its `fx.Module`, wrapping the controller constructor with
+   `core.AsController(...)`:
+
+   ```go
+   var FooModule = fx.Module("FooModule",
+       fx.Provide(
+           NewFooRepository,
+           NewFooService,
+           core.AsController(NewFooController),
+       ),
+   )
+   ```
+
+3. Pass its `fx.Module` to `core.Server(...)` in `main.go`.
+
+## Development
+
+Git hooks are managed by [lefthook](https://lefthook.dev/) and
+linting/formatting by [golangci-lint](https://golangci-lint.run/).
+
+Install the tools and the hooks:
+
+```bash
+make install-tools   # go install lefthook + golangci-lint (no brew required)
+make install-hooks   # lefthook install
+```
+
+> `make install-tools` puts the binaries in `$(go env GOPATH)/bin` — make sure
+> that's on your `PATH`. Prefer Homebrew? `brew install lefthook golangci-lint`
+> works too. Note the `/v2` suffix is required when installing lefthook with
+> `go install` (`github.com/evilmartians/lefthook/v2@latest`), otherwise you get
+> the latest v1.
+
+Hooks:
+
+- **pre-commit** — `golangci-lint fmt`, `go vet`, and `golangci-lint run --fix`
+  (auto-fixes are restaged).
+- **pre-push** — `make test` (`go test -cover ./...`).
+
+Run them manually:
+
+```bash
+go test ./...
+golangci-lint run ./...
 ```
 
 ## Build
