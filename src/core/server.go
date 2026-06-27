@@ -25,7 +25,7 @@ func NewHumaAPI(app *fiber.App) huma.API {
 }
 
 // startServer ties the Fiber app to the fx application lifecycle.
-func startServer(lc fx.Lifecycle, app *fiber.App) {
+func startServer(lc fx.Lifecycle, app *fiber.App, shutdowner fx.Shutdowner) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			// Bind synchronously so listen failures (e.g. port in use)
@@ -35,8 +35,13 @@ func startServer(lc fx.Lifecycle, app *fiber.App) {
 				return err
 			}
 			go func() {
+				// app.Listener returns nil on graceful shutdown (OnStop). Any
+				// other error means the server died unexpectedly, so ask fx to
+				// shut the app down rather than leaving it running without a
+				// listening HTTP server.
 				if err := app.Listener(ln); err != nil {
 					log.Printf("fiber server stopped: %v", err)
+					_ = shutdowner.Shutdown(fx.ExitCode(1))
 				}
 			}()
 			return nil

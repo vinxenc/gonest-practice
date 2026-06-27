@@ -36,6 +36,7 @@ type serverParams struct {
 	fx.In
 
 	Lifecycle   fx.Lifecycle
+	Shutdowner  fx.Shutdowner
 	App         *fiber.App
 	API         huma.API
 	Controllers []Controller `group:"controllers"`
@@ -45,5 +46,5 @@ type serverParams struct {
 // and ties the Fiber server to the fx lifecycle. fx invokes it once at startup.
 func initServer(p serverParams) {
 	registerRoutes(p.API, p.Controllers)
-	startServer(p.Lifecycle, p.App)
+	startServer(p.Lifecycle, p.App, p.Shutdowner)
 }
