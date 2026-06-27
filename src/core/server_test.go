@@ -5,6 +5,7 @@ import (
 	"net"
 	"strconv"
 	"testing"
+	"time"
 
 	"gonest-practice/src/config"
 
@@ -62,8 +63,9 @@ func freePort(t *testing.T) int {
 // OnStart hook must bind successfully and OnStop must shut the server down
 // cleanly.
 func TestStartServer_StartStop(t *testing.T) {
+	port := freePort(t)
 	lc := &fakeLifecycle{}
-	startServer(lc, fiber.New(), &fakeShutdowner{}, &config.Settings{Port: freePort(t)})
+	startServer(lc, fiber.New(), &fakeShutdowner{}, &config.Settings{Port: port})
 
 	if len(lc.hooks) != 1 {
 		t.Fatalf("startServer appended %d hooks, want 1", len(lc.hooks))
@@ -74,9 +76,32 @@ func TestStartServer_StartStop(t *testing.T) {
 	if err := h.OnStart(ctx); err != nil {
 		t.Fatalf("OnStart returned error: %v", err)
 	}
+
+	// OnStart serves on the listener in a goroutine, so wait until the server is
+	// actually accepting connections before stopping it. Without this, OnStop can
+	// race the serving goroutine and leave it running after shutdown.
+	addr := "127.0.0.1:" + strconv.Itoa(port)
+	if !waitListening(addr, 5*time.Second) {
+		t.Fatalf("server never started listening on %s", addr)
+	}
+
 	if err := h.OnStop(ctx); err != nil {
 		t.Fatalf("OnStop returned error: %v", err)
 	}
+}
+
+// waitListening reports whether addr accepts a TCP connection before the timeout.
+func waitListening(addr string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
 }
 
 // TestStartServer_BindError verifies a failed bind (port already in use)
@@ -94,6 +119,9 @@ func TestStartServer_BindError(t *testing.T) {
 	lc := &fakeLifecycle{}
 	startServer(lc, fiber.New(), &fakeShutdowner{}, &config.Settings{Port: port})
 
+	if len(lc.hooks) != 1 {
+		t.Fatalf("startServer appended %d hooks, want 1", len(lc.hooks))
+	}
 	if err := lc.hooks[0].OnStart(context.Background()); err == nil {
 		t.Fatal("OnStart on an occupied port = nil error, want bind error")
 	}
