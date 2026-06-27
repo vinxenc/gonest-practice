@@ -146,32 +146,36 @@ To add a new feature module:
 ## Development
 
 Git hooks are managed by [lefthook](https://lefthook.dev/) and
-linting/formatting by [golangci-lint](https://golangci-lint.run/).
+linting/formatting by [golangci-lint](https://golangci-lint.run/). Both are
+pinned as Go tool dependencies in `go.mod` (the `tool` directive), so there is
+nothing to install separately — run them through `go tool`.
 
-Install the tools and the hooks:
+Install the git hooks:
 
 ```bash
-make install-tools   # go install lefthook + golangci-lint (no brew required)
-make install-hooks   # lefthook install
+go tool lefthook install
 ```
-
-> `make install-tools` puts the binaries in `$(go env GOPATH)/bin` — make sure
-> that's on your `PATH`. Prefer Homebrew? `brew install lefthook golangci-lint`
-> works too. Note the `/v2` suffix is required when installing lefthook with
-> `go install` (`github.com/evilmartians/lefthook/v2@latest`), otherwise you get
-> the latest v1.
 
 Hooks:
 
-- **pre-commit** — `golangci-lint fmt`, `go vet`, and `golangci-lint run --fix`
-  (auto-fixes are restaged).
-- **pre-push** — `make test` (`go test -cover ./...`).
+- **pre-commit** — `go tool golangci-lint fmt`, `go vet`, and
+  `go tool golangci-lint run --fix` (auto-fixes are restaged).
+- **pre-push** — `go test ./...`.
 
 Run them manually:
 
 ```bash
 go test ./...
-golangci-lint run ./...
+go tool golangci-lint run ./...
+```
+
+CI enforces a minimum total statement coverage of 90% using
+[go-test-coverage](https://github.com/vladopajic/go-test-coverage), configured
+by [`.testcoverage.yml`](.testcoverage.yml). Check it locally the same way CI
+does:
+
+```bash
+go tool lefthook run test   # runs the tests and the coverage threshold check
 ```
 
 ## Build

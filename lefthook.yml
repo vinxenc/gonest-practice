@@ -4,7 +4,7 @@ pre-commit:
     fmt:
       priority: 1
       glob: "*.go"
-      run: golangci-lint fmt
+      run: go tool golangci-lint fmt
       stage_fixed: true
     vet:
       priority: 2
@@ -13,17 +13,18 @@ pre-commit:
     lint:
       priority: 3
       glob: "*.go"
-      run: golangci-lint run --fix
+      run: go tool golangci-lint run --fix
       stage_fixed: true
 
 pre-push:
   commands:
     test:
-      run: make test
+      run: go test ./...
 
-# Manually runnable: `lefthook run test`
-# Runs the unit tests with a coverage profile and prints total coverage.
+# Manually runnable: `go tool lefthook run test`
+# Runs the unit tests and checks the coverage threshold the same way CI does
+# (github.com/vladopajic/go-test-coverage, configured by .testcoverage.yml).
 test:
   commands:
     cover:
-      run: make test-cover
+      run: go test ./... -coverprofile=cover.out -covermode=atomic && go run github.com/vladopajic/go-test-coverage/v2@v2.18.8 --config=.testcoverage.yml
