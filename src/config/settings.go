@@ -19,6 +19,28 @@ const maxPort = 65535
 type Settings struct {
 	// Port is the TCP port the HTTP server listens on.
 	Port int `env:"PORT,default=3000"`
+
+	// DBHost is the PostgreSQL server hostname.
+	DBHost string `env:"DB_HOST,default=localhost"`
+	// DBPort is the PostgreSQL server port.
+	DBPort int `env:"DB_PORT,default=5432"`
+	// DBUser is the PostgreSQL user to connect as.
+	DBUser string `env:"DB_USER,default=postgres"`
+	// DBPassword is the PostgreSQL user's password.
+	DBPassword string `env:"DB_PASSWORD,default=postgres"`
+	// DBName is the PostgreSQL database to connect to.
+	DBName string `env:"DB_NAME,default=employees"`
+	// DBSSLMode is the libpq sslmode (disable, require, verify-full, ...).
+	DBSSLMode string `env:"DB_SSLMODE,default=disable"`
+}
+
+// DatabaseDSN builds a libpq-style connection string from the database settings,
+// suitable for passing to the GORM PostgreSQL driver.
+func (s Settings) DatabaseDSN() string {
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		s.DBHost, s.DBPort, s.DBUser, s.DBPassword, s.DBName, s.DBSSLMode,
+	)
 }
 
 // validate performs semantic checks that the `env` struct tags cannot express,

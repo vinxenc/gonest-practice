@@ -2,18 +2,22 @@
 
 A [Fiber](https://gofiber.io/) web server in Go organized in a NestJS-style
 modular architecture, using [Uber fx](https://uber-go.github.io/fx/) for
-dependency injection and [Huma](https://huma.rocks/) for automatic OpenAPI
-generation.
+dependency injection, [Huma](https://huma.rocks/) for automatic OpenAPI
+generation, and [GORM](https://gorm.io/) for PostgreSQL data access.
 
 ## Requirements
 
 - Go 1.26+
+- Docker (for the local PostgreSQL database)
 
 ## Getting started
 
-Install dependencies and run the server:
+Start the PostgreSQL database and import the sample data (see
+[Database](#database)), then install dependencies and run the server:
 
 ```bash
+docker compose up -d     # start PostgreSQL
+# ...then import the Employees database (one time) — see "Database" below
 go mod tidy
 go run ./src
 ```
@@ -25,6 +29,43 @@ the `PORT` environment variable (see [Configuration](#configuration)):
 PORT=4567 go run ./src   # listens on http://localhost:4567
 ```
 
+## Database
+
+The app reads from the
+[Employees sample database](https://github.com/neondatabase/postgres-sample-dbs#employees-database)
+(~300k employees across 6 related tables in an `employees` schema).
+[`docker-compose.yml`](docker-compose.yml) runs PostgreSQL 17; import the sample
+data once with `pg_restore`.
+
+**1. Start PostgreSQL:**
+
+```bash
+docker compose up -d
+```
+
+**2. Download the dump** (a PostgreSQL custom-format archive, ~33 MB) into
+`db/dump/`, which the container mounts at `/dump`:
+
+```bash
+curl -fSL -o db/dump/employees.sql.gz \
+  https://raw.githubusercontent.com/neondatabase/postgres-sample-dbs/main/employees.sql.gz
+```
+
+**3. Restore it** into the `employees` database (uses the `pg_restore` bundled in
+the container, so no host PostgreSQL tools are required):
+
+```bash
+docker compose exec postgres \
+  pg_restore -U postgres -d employees --no-owner --no-privileges /dump/employees.sql.gz
+```
+
+Data persists in a named volume across restarts. To start over, run
+`docker compose down -v`, then repeat from step 1.
+
+The default database settings match the compose file, so no configuration is
+needed for local development. Point the app at another database via the `DB_*`
+variables (see [Configuration](#configuration)).
+
 ## Configuration
 
 Runtime configuration is read from environment variables, validated, and
@@ -34,9 +75,15 @@ validated values live in a single `config.Settings` struct
 ([`src/config/settings.go`](src/config/settings.go)); invalid configuration
 fails app startup with every offending variable reported at once.
 
-| Variable | Type | Default | Description                       |
-| -------- | ---- | ------- | --------------------------------- |
-| `PORT`   | int  | `3000`  | TCP port the HTTP server binds to |
+| Variable      | Type   | Default      | Description                              |
+| ------------- | ------ | ------------ | ---------------------------------------- |
+| `PORT`        | int    | `3000`       | TCP port the HTTP server binds to        |
+| `DB_HOST`     | string | `localhost`  | PostgreSQL server hostname               |
+| `DB_PORT`     | int    | `5432`       | PostgreSQL server port                   |
+| `DB_USER`     | string | `postgres`   | PostgreSQL user                          |
+| `DB_PASSWORD` | string | `postgres`   | PostgreSQL password                      |
+| `DB_NAME`     | string | `employees`  | PostgreSQL database name                 |
+| `DB_SSLMODE`  | string | `disable`    | libpq `sslmode` (e.g. `require`)         |
 
 `config.Load` is registered as an fx provider, so `Settings` is constructed (and
 validated) as part of the dependency graph — `core` injects it and the server
@@ -55,8 +102,12 @@ type Settings struct {
 | Method | Path            | Description                          | Response          |
 | ------ | --------------- | ------------------------------------ | ----------------- |
 | GET    | `/health`       | Health check                         | `{"status":"ok"}` |
+| GET    | `/employees`    | List employees (offset pagination)   | JSON              |
 | GET    | `/docs`         | Swagger UI (interactive API docs)    | HTML              |
 | GET    | `/openapi.json` | Auto-generated OpenAPI 3.1 spec      | JSON              |
+
+`GET /employees` accepts `limit` (1–100, default 20) and `offset` (default 0)
+query parameters and returns the page plus pagination metadata.
 
 The OpenAPI spec and docs are generated automatically by Huma from the
 registered operations — no separate spec file to maintain.
@@ -64,6 +115,9 @@ registered operations — no separate spec file to maintain.
 ```bash
 curl http://localhost:3000/health
 # {"status":"ok"}
+
+curl "http://localhost:3000/employees?limit=2"
+# {"employees":[{"id":10001,"firstName":"Georgi", ...}], "limit":2, "offset":0, "total":300024}
 ```
 
 ## Architecture
@@ -75,23 +129,37 @@ collects the whole group and registers every route — so a module is wired up
 just by including it.
 
 ```text
-src/
-├── main.go                      # bootstraps via core.Server(...)
-├── config/
-│   └── settings.go              # env-validated Settings (go-env-validator) + fx provider
-├── core/
-│   ├── bootstrap.go             # core.Server factory + initServer (NestFactory-like)
-│   ├── doc.go                   # package design & rationale
-│   ├── router.go                # Controller interface, AsController, registerRoutes
-│   ├── router_test.go
-│   └── server.go                # Fiber + Huma providers and server lifecycle
-└── modules/
-    └── healthModule/            # example feature module
-        ├── health.module.go     # fx providers + AsController(HealthController)
-        ├── health.controller.go # registers Huma routes
-        ├── health.service.go    # business logic
-        ├── health.repository.go # data-access layer
-        └── health.dto.go        # request/response types
+.
+├── docker-compose.yml           # PostgreSQL 17 + first-run import of the sample DB
+├── db/
+│   ├── download.sh              # fetches the Employees sample dump into db/dump/
+│   └── init/                    # docker-entrypoint-initdb.d scripts (pg_restore)
+└── src/
+    ├── main.go                  # bootstraps via core.Server(...)
+    ├── config/
+    │   └── settings.go          # env-validated Settings (go-env-validator) + fx provider
+    ├── core/
+    │   ├── bootstrap.go         # core.Server factory + initServer (NestFactory-like)
+    │   ├── doc.go               # package design & rationale
+    │   ├── router.go            # Controller interface, AsController, registerRoutes
+    │   └── server.go            # Fiber + Huma providers and server lifecycle
+    └── modules/
+        ├── gormModule/          # shared *gorm.DB (PostgreSQL) provider, reused by feature modules
+        │   ├── gorm.module.go       # fx.Module exposing the connection
+        │   └── gorm.provider.go     # NewGorm: opens GORM + lifecycle close
+        ├── healthModule/        # example feature module
+        │   ├── health.module.go     # fx providers + AsController(HealthController)
+        │   ├── health.controller.go # registers Huma routes
+        │   ├── health.service.go    # business logic
+        │   ├── health.repository.go # data-access layer
+        │   └── health.dto.go        # request/response types
+        └── employeeModule/      # Employees feature (GORM-backed)
+            ├── employee.module.go     # fx providers + AsController(EmployeeController)
+            ├── employee.controller.go # GET /employees route
+            ├── employee.service.go    # business logic + pagination clamping
+            ├── employee.repository.go # GORM data-access + EmployeeReader interface
+            ├── employee.entity.go     # GORM entities for the 6 employees tables
+            └── employee.dto.go        # request/response types
 ```
 
 ### Dependency injection with fx
@@ -107,7 +175,9 @@ calls `Run`. Including a module is all that's needed:
 ```go
 func main() {
     app := core.Server(
+        gormModule.GormModule, // shared infrastructure module
         healthModule.HealthModule,
+        employeeModule.EmployeeModule,
     )
     app.Run()
 }
@@ -116,6 +186,16 @@ func main() {
 `core.Server` provides the Fiber + Huma server and registers a single
 `initServer` invoke, which collects every controller in the `"controllers"`
 group, triggers `registerRoutes`, and then ties the server to the fx lifecycle.
+
+### Shared modules
+
+Infrastructure that several features need is its own `fx.Module`, included once
+at the composition root. `gormModule.GormModule` provides a single `*gorm.DB`
+(PostgreSQL) connection; because fx providers are application-wide, any other
+module reuses it just by declaring `*gorm.DB` as a constructor parameter — no
+re-wiring per module. This mirrors a NestJS global database module
+(`TypeOrmModule.forRoot()`). `employeeModule`'s repository depends on `*gorm.DB`
+and resolves the shared handle automatically.
 
 ### Route registration
 

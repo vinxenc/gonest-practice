@@ -55,6 +55,36 @@ func TestLoad_NonNumericPort(t *testing.T) {
 	}
 }
 
+// TestSettings_DatabaseDSN verifies the DSN is built from the database settings
+// in libpq keyword/value form.
+func TestSettings_DatabaseDSN(t *testing.T) {
+	s := Settings{
+		DBHost:     "db.example.com",
+		DBPort:     5433,
+		DBUser:     "alice",
+		DBPassword: "s3cret",
+		DBName:     "employees",
+		DBSSLMode:  "require",
+	}
+	want := "host=db.example.com port=5433 user=alice password=s3cret dbname=employees sslmode=require"
+	if got := s.DatabaseDSN(); got != want {
+		t.Fatalf("DatabaseDSN() = %q, want %q", got, want)
+	}
+}
+
+// TestLoad_DatabaseDefaults verifies the database settings fall back to their
+// defaults and produce a localhost DSN when nothing is set.
+func TestLoad_DatabaseDefaults(t *testing.T) {
+	s, err := Load()
+	if err != nil {
+		t.Fatalf("Load() returned error: %v", err)
+	}
+	want := "host=localhost port=5432 user=postgres password=postgres dbname=employees sslmode=disable"
+	if got := s.DatabaseDSN(); got != want {
+		t.Fatalf("default DatabaseDSN() = %q, want %q", got, want)
+	}
+}
+
 // TestSettings_Validate verifies the validate method directly across boundary
 // values.
 func TestSettings_Validate(t *testing.T) {
