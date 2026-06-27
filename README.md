@@ -43,8 +43,9 @@ data once with `pg_restore`.
 docker compose up -d
 ```
 
-**2. Download the dump** (a PostgreSQL custom-format archive, ~33 MB) into
-`db/dump/`, which the container mounts at `/dump`:
+**2. Download the dump** into `db/dump/`, which the container mounts at `/dump`.
+Despite the `.sql.gz` name it is a PostgreSQL **custom-format** archive (~33 MB),
+so it is restored with `pg_restore` (not `psql`):
 
 ```bash
 curl -fSL -o db/dump/employees.sql.gz \

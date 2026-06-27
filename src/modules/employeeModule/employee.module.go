@@ -12,8 +12,9 @@ import (
 // controller is contributed to the "controllers" group via core.AsController so
 // its routes register automatically just by including this module.
 //
-// The repository depends on *gorm.DB, which core provides (core.NewDatabase), so
-// including this module is enough — no extra wiring.
+// The repository depends on *gorm.DB, provided by gormModule.GormModule, so both
+// modules must be included at the composition root — fx then resolves the shared
+// connection automatically, with no extra wiring.
 var EmployeeModule = fx.Module("EmployeeModule",
 	fx.Provide(
 		fx.Annotate(EmployeeRepository, fx.As(new(EmployeeReader))),

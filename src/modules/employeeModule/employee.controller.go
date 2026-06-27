@@ -32,15 +32,17 @@ func (c *Controller) RegisterRoutes(api huma.API) {
 
 // list handles GET /employees.
 func (c *Controller) list(ctx context.Context, input *ListEmployeesInput) (*ListEmployeesOutput, error) {
-	employees, total, err := c.service.List(ctx, input.Limit, input.Offset)
+	result, err := c.service.List(ctx, input.Limit, input.Offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to list employees", err)
 	}
 
 	resp := &ListEmployeesOutput{}
-	resp.Body.Employees = toEmployeeDTOs(employees)
-	resp.Body.Limit = input.Limit
-	resp.Body.Offset = input.Offset
-	resp.Body.Total = total
+	resp.Body.Employees = toEmployeeDTOs(result.Employees)
+	// Echo the pagination the service actually applied (after clamping), not the
+	// raw request values.
+	resp.Body.Limit = result.Limit
+	resp.Body.Offset = result.Offset
+	resp.Body.Total = result.Total
 	return resp, nil
 }

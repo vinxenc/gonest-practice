@@ -6,6 +6,9 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 
 	envvalidator "github.com/philiprehberger/go-env-validator"
 )
@@ -34,13 +37,20 @@ type Settings struct {
 	DBSSLMode string `env:"DB_SSLMODE,default=disable"`
 }
 
-// DatabaseDSN builds a libpq-style connection string from the database settings,
-// suitable for passing to the GORM PostgreSQL driver.
+// DatabaseDSN builds a PostgreSQL connection URL from the database settings,
+// suitable for passing to the GORM PostgreSQL driver. The URL form is used (over
+// libpq keyword/value) so net/url percent-encodes the user, password, and
+// database name — values containing spaces, '=', or other special characters
+// would otherwise produce an invalid DSN.
 func (s Settings) DatabaseDSN() string {
-	return fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		s.DBHost, s.DBPort, s.DBUser, s.DBPassword, s.DBName, s.DBSSLMode,
-	)
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(s.DBUser, s.DBPassword),
+		Host:     net.JoinHostPort(s.DBHost, strconv.Itoa(s.DBPort)),
+		Path:     "/" + s.DBName,
+		RawQuery: url.Values{"sslmode": {s.DBSSLMode}}.Encode(),
+	}
+	return u.String()
 }
 
 // validate performs semantic checks that the `env` struct tags cannot express,

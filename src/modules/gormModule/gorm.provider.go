@@ -3,12 +3,22 @@ package gormModule
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"gonest-practice/src/config"
 
 	"go.uber.org/fx"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+)
+
+// Connection-pool bounds applied to the underlying *sql.DB. Sensible defaults
+// that keep connection usage bounded under load.
+const (
+	maxOpenConns    = 25
+	maxIdleConns    = 5
+	connMaxLifetime = time.Hour
+	connMaxIdleTime = 30 * time.Minute
 )
 
 // NewGorm provides a GORM database handle backed by PostgreSQL and ties its
@@ -31,6 +41,11 @@ func NewGorm(lc fx.Lifecycle, settings *config.Settings) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("accessing database connection pool: %w", err)
 	}
+
+	sqlDB.SetMaxOpenConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
+	sqlDB.SetConnMaxLifetime(connMaxLifetime)
+	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
 
 	lc.Append(fx.Hook{
 		OnStop: func(context.Context) error {

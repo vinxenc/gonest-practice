@@ -66,7 +66,8 @@ func TestController_ListEmployees(t *testing.T) {
 }
 
 // TestController_ListEmployees_WithParams verifies explicit limit/offset query
-// params are honored.
+// params are honored end to end: they reach the data layer and are echoed back
+// in the response pagination metadata.
 func TestController_ListEmployees_WithParams(t *testing.T) {
 	repo := &fakeReader{}
 	c := EmployeeController(EmployeeService(repo))
@@ -74,8 +75,20 @@ func TestController_ListEmployees_WithParams(t *testing.T) {
 	_, api := humatest.New(t)
 	c.RegisterRoutes(api)
 
-	if resp := api.Get("/employees?limit=5&offset=15"); resp.Code != http.StatusOK {
+	resp := api.Get("/employees?limit=5&offset=15")
+	if resp.Code != http.StatusOK {
 		t.Fatalf("GET /employees status = %d, want %d", resp.Code, http.StatusOK)
+	}
+
+	var body struct {
+		Limit  int `json:"limit"`
+		Offset int `json:"offset"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response body: %v", err)
+	}
+	if body.Limit != 5 || body.Offset != 15 {
+		t.Fatalf("response pagination = limit %d / offset %d, want 5 / 15", body.Limit, body.Offset)
 	}
 	if repo.gotLimit != 5 || repo.gotOffset != 15 {
 		t.Fatalf("repo called with limit=%d offset=%d, want 5/15", repo.gotLimit, repo.gotOffset)

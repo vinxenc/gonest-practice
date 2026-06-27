@@ -32,12 +32,15 @@ func TestService_List_Delegates(t *testing.T) {
 	}
 	svc := EmployeeService(repo)
 
-	employees, total, err := svc.List(context.Background(), 10, 5)
+	result, err := svc.List(context.Background(), 10, 5)
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
-	if total != 2 || len(employees) != 2 {
-		t.Fatalf("List = (%d employees, total %d), want (2, 2)", len(employees), total)
+	if result.Total != 2 || len(result.Employees) != 2 {
+		t.Fatalf("List = (%d employees, total %d), want (2, 2)", len(result.Employees), result.Total)
+	}
+	if result.Limit != 10 || result.Offset != 5 {
+		t.Fatalf("result pagination = limit %d / offset %d, want 10 / 5", result.Limit, result.Offset)
 	}
 	if repo.gotLimit != 10 || repo.gotOffset != 5 {
 		t.Fatalf("repo called with limit=%d offset=%d, want 10/5", repo.gotLimit, repo.gotOffset)
@@ -63,12 +66,17 @@ func TestService_List_Normalizes(t *testing.T) {
 			repo := &fakeReader{}
 			svc := EmployeeService(repo)
 
-			if _, _, err := svc.List(context.Background(), tt.limit, tt.offset); err != nil {
+			result, err := svc.List(context.Background(), tt.limit, tt.offset)
+			if err != nil {
 				t.Fatalf("List returned error: %v", err)
 			}
 			if repo.gotLimit != tt.wantLimit || repo.gotOffset != tt.wantOffset {
 				t.Fatalf("repo called with limit=%d offset=%d, want %d/%d",
 					repo.gotLimit, repo.gotOffset, tt.wantLimit, tt.wantOffset)
+			}
+			if result.Limit != tt.wantLimit || result.Offset != tt.wantOffset {
+				t.Fatalf("result pagination = limit %d / offset %d, want %d/%d",
+					result.Limit, result.Offset, tt.wantLimit, tt.wantOffset)
 			}
 		})
 	}
@@ -80,7 +88,7 @@ func TestService_List_PropagatesError(t *testing.T) {
 	wantErr := errors.New("db down")
 	svc := EmployeeService(&fakeReader{err: wantErr})
 
-	if _, _, err := svc.List(context.Background(), 20, 0); !errors.Is(err, wantErr) {
+	if _, err := svc.List(context.Background(), 20, 0); !errors.Is(err, wantErr) {
 		t.Fatalf("List error = %v, want %v", err, wantErr)
 	}
 }

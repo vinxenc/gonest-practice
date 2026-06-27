@@ -48,4 +48,10 @@ func TestEmployeeModule_ProvidesControllerToGroup(t *testing.T) {
 	if resp := api.Get("/employees"); resp.Code != http.StatusOK {
 		t.Fatalf("module controller GET /employees = %d, want %d", resp.Code, http.StatusOK)
 	}
+
+	// Confirm the fx-wired controller actually queried the injected *gorm.DB,
+	// so this test fails if it stops hitting the database.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
 }
