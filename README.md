@@ -131,10 +131,10 @@ just by including it.
 
 ```text
 .
-├── docker-compose.yml           # PostgreSQL 17 + first-run import of the sample DB
+├── docker-compose.yml           # PostgreSQL 17 for local development
 ├── db/
-│   ├── download.sh              # fetches the Employees sample dump into db/dump/
-│   └── init/                    # docker-entrypoint-initdb.d scripts (pg_restore)
+│   └── dump/                    # downloaded sample dump (git-ignored); restored via pg_restore
+├── migrations/                  # golang-migrate SQL migrations (one per table)
 └── src/
     ├── main.go                  # bootstraps via core.Server(...)
     ├── config/

@@ -92,6 +92,14 @@ func TestSettings_DatabaseDSN_EscapesCredentials(t *testing.T) {
 // TestLoad_DatabaseDefaults verifies the database settings fall back to their
 // defaults and produce a localhost DSN when nothing is set.
 func TestLoad_DatabaseDefaults(t *testing.T) {
+	// Clear any ambient config so the defaults are what's exercised, regardless
+	// of the developer's shell or CI environment.
+	for _, k := range []string{
+		"PORT", "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD", "DB_NAME", "DB_SSLMODE",
+	} {
+		t.Setenv(k, "")
+	}
+
 	s, err := Load()
 	if err != nil {
 		t.Fatalf("Load() returned error: %v", err)

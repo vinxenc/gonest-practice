@@ -10,9 +10,14 @@ const (
 )
 
 // ListEmployeesInput is the query for GET /employees, with offset pagination.
+//
+// The service is the single source of truth for pagination bounds: out-of-range
+// values are clamped (not rejected), so no minimum/maximum is declared here —
+// that would make Huma reject the request before the service could clamp it. The
+// response echoes the effective limit/offset that were applied.
 type ListEmployeesInput struct {
-	Limit  int `query:"limit" minimum:"1" maximum:"100" default:"20" doc:"Maximum number of employees to return"`
-	Offset int `query:"offset" minimum:"0" default:"0" doc:"Number of employees to skip"`
+	Limit  int `query:"limit" default:"20" doc:"Maximum number of employees to return (clamped to 1-100)"`
+	Offset int `query:"offset" default:"0" doc:"Number of employees to skip (negative is treated as 0)"`
 }
 
 // EmployeeDTO is the API representation of an employee.

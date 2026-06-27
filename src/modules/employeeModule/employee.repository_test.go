@@ -76,6 +76,9 @@ func TestRepository_List_CountError(t *testing.T) {
 	if _, _, err := repo.List(context.Background(), 20, 0); err == nil {
 		t.Fatal("List() = nil error, want count error")
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
+	}
 }
 
 // TestRepository_List_FindError verifies a failing select (after a successful
@@ -91,5 +94,8 @@ func TestRepository_List_FindError(t *testing.T) {
 
 	if _, _, err := repo.List(context.Background(), 20, 0); err == nil {
 		t.Fatal("List() = nil error, want find error")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sqlmock expectations: %v", err)
 	}
 }

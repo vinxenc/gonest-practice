@@ -95,6 +95,35 @@ func TestController_ListEmployees_WithParams(t *testing.T) {
 	}
 }
 
+// TestController_ListEmployees_ClampsOutOfRange verifies an out-of-range limit is
+// clamped by the service (rather than rejected) and the clamped value is what
+// reaches the data layer and is echoed in the response.
+func TestController_ListEmployees_ClampsOutOfRange(t *testing.T) {
+	repo := &fakeReader{}
+	c := EmployeeController(EmployeeService(repo))
+
+	_, api := humatest.New(t)
+	c.RegisterRoutes(api)
+
+	resp := api.Get("/employees?limit=1000")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("GET /employees status = %d, want %d", resp.Code, http.StatusOK)
+	}
+
+	var body struct {
+		Limit int `json:"limit"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response body: %v", err)
+	}
+	if body.Limit != maxLimit {
+		t.Fatalf("response limit = %d, want clamped %d", body.Limit, maxLimit)
+	}
+	if repo.gotLimit != maxLimit {
+		t.Fatalf("repo called with limit %d, want clamped %d", repo.gotLimit, maxLimit)
+	}
+}
+
 // TestController_ListEmployees_ServiceError verifies a data-layer failure
 // surfaces as a 500.
 func TestController_ListEmployees_ServiceError(t *testing.T) {

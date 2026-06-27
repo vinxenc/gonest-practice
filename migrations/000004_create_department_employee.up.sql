@@ -11,3 +11,8 @@ CREATE TABLE employees.department_employee (
         FOREIGN KEY (department_id) REFERENCES employees.department (id)
         ON UPDATE RESTRICT ON DELETE CASCADE
 );
+
+-- The composite PK is keyed by employee_id first, so it can't serve
+-- department-driven lookups or the department_id FK check; index it separately.
+CREATE INDEX idx_department_employee_department_id
+    ON employees.department_employee (department_id);
