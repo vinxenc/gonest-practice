@@ -18,7 +18,37 @@ go mod tidy
 go run ./src
 ```
 
-The server listens on `http://localhost:3000`.
+The server listens on `http://localhost:3000` by default. Override the port via
+the `PORT` environment variable (see [Configuration](#configuration)):
+
+```bash
+PORT=4567 go run ./src   # listens on http://localhost:4567
+```
+
+## Configuration
+
+Runtime configuration is read from environment variables, validated, and
+defaulted up front by
+[go-env-validator](https://github.com/philiprehberger/go-env-validator). The
+validated values live in a single `config.Settings` struct
+([`src/config/settings.go`](src/config/settings.go)); invalid configuration
+fails app startup with every offending variable reported at once.
+
+| Variable | Type | Default | Description                       |
+| -------- | ---- | ------- | --------------------------------- |
+| `PORT`   | int  | `3000`  | TCP port the HTTP server binds to |
+
+`config.Load` is registered as an fx provider, so `Settings` is constructed (and
+validated) as part of the dependency graph — `core` injects it and the server
+binds to `Settings.Port`. To add a new setting, add a field with an `env` struct
+tag to `Settings`:
+
+```go
+type Settings struct {
+    Port int    `env:"PORT,default=3000"`
+    Env  string `env:"APP_ENV,required,choices=development|staging|production"`
+}
+```
 
 ## Endpoints
 
@@ -47,6 +77,8 @@ just by including it.
 ```text
 src/
 ├── main.go                      # bootstraps via core.Server(...)
+├── config/
+│   └── settings.go              # env-validated Settings (go-env-validator) + fx provider
 ├── core/
 │   ├── bootstrap.go             # core.Server factory + initServer (NestFactory-like)
 │   ├── doc.go                   # package design & rationale

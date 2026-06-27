@@ -1,6 +1,8 @@
 package core
 
 import (
+	"gonest-practice/src/config"
+
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/fx"
@@ -22,6 +24,7 @@ import (
 func Server(opts ...fx.Option) *fx.App {
 	return fx.New(
 		fx.Provide(
+			config.Load,
 			NewFiber,
 			NewHumaAPI,
 		),
@@ -39,6 +42,7 @@ type serverParams struct {
 	Shutdowner  fx.Shutdowner
 	App         *fiber.App
 	API         huma.API
+	Settings    *config.Settings
 	Controllers []Controller `group:"controllers"`
 }
 
@@ -46,5 +50,5 @@ type serverParams struct {
 // and ties the Fiber server to the fx lifecycle. fx invokes it once at startup.
 func initServer(p serverParams) {
 	registerRoutes(p.API, p.Controllers)
-	startServer(p.Lifecycle, p.App, p.Shutdowner)
+	startServer(p.Lifecycle, p.App, p.Shutdowner, p.Settings)
 }

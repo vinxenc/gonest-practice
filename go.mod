@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/danielgtaylor/huma/v2 v2.38.0
 	github.com/gofiber/fiber/v2 v2.52.13
+	github.com/philiprehberger/go-env-validator v0.3.2
 	go.uber.org/fx v1.24.0
 )
 
