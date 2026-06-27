@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+	"go.uber.org/fx"
+	"go.uber.org/fx/fxtest"
 )
 
 type recordingController struct{ calls int }
@@ -29,8 +31,26 @@ func TestRegisterRoutes_NoControllers(t *testing.T) {
 	registerRoutes(nil, nil)
 }
 
-func TestAsController_ReturnsAnnotation(t *testing.T) {
-	if got := AsController(func() *recordingController { return &recordingController{} }); got == nil {
-		t.Fatal("AsController returned nil for a valid controller constructor")
+// TestAsController_JoinsControllersGroup verifies the Fx grouping contract: a
+// constructor wrapped with AsController must be provided into the "controllers"
+// value group, so a consumer of that group receives it. If AsController ever
+// regressed to returning a raw constructor (no group tag), the group consumer
+// would receive nothing and this test would fail.
+func TestAsController_JoinsControllersGroup(t *testing.T) {
+	want := &recordingController{}
+
+	var got []Controller
+	app := fxtest.New(t,
+		fx.Provide(AsController(func() *recordingController { return want })),
+		fx.Invoke(fx.Annotate(
+			func(controllers []Controller) { got = controllers },
+			fx.ParamTags(`group:"controllers"`),
+		)),
+	)
+	defer app.RequireStop()
+	app.RequireStart()
+
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf(`AsController did not wire the constructor into the "controllers" group: got %d controllers, want 1`, len(got))
 	}
 }
