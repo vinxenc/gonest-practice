@@ -1,4 +1,4 @@
-.PHONY: install-tools install-hooks test test-cover
+.PHONY: install-tools install-hooks lint test test-cover
 
 # Install the dev tools (lefthook + golangci-lint) without brew, via go install.
 install-tools:
@@ -8,6 +8,10 @@ install-tools:
 # Install the git hooks (run once after install-tools).
 install-hooks:
 	lefthook install
+
+# Run golangci-lint (lint + formatting checks, no auto-fix).
+lint:
+	golangci-lint run ./...
 
 # Run the unit tests with a quick coverage summary per package.
 test:
