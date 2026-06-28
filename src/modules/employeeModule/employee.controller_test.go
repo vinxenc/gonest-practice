@@ -33,7 +33,7 @@ func newControllerHandler(t *testing.T, repo *fakeReader) http.Handler {
 // provided service.
 func TestController_Construction(t *testing.T) {
 	svc := EmployeeService(&fakeReader{})
-	c := EmployeeController(svc)
+	c := EmployeeController(svc, gonest.NopLogger{})
 	if c == nil {
 		t.Fatal("EmployeeController returned nil")
 	}
@@ -124,6 +124,33 @@ func TestController_ListEmployees_ClampsOutOfRange(t *testing.T) {
 	}
 	if repo.gotLimit != maxLimit {
 		t.Fatalf("repo called with limit %d, want clamped %d", repo.gotLimit, maxLimit)
+	}
+}
+
+// TestController_ListEmployees_InvalidParams verifies the clamp-don't-reject
+// contract for non-numeric and negative pagination: a malformed limit is treated
+// as unspecified (clamped to the default) and a negative offset is floored to 0,
+// rather than rejected with a 4xx.
+func TestController_ListEmployees_InvalidParams(t *testing.T) {
+	repo := &fakeReader{}
+	h := newControllerHandler(t, repo)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/employees?limit=abc&offset=-10", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /employees status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	var body ListEmployeesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response body: %v", err)
+	}
+	// Malformed "abc" -> 0 -> default; negative offset -> floored to 0.
+	if body.Limit != defaultLimit || body.Offset != 0 {
+		t.Fatalf("pagination = limit %d / offset %d, want %d / 0", body.Limit, body.Offset, defaultLimit)
+	}
+	if repo.gotLimit != defaultLimit || repo.gotOffset != 0 {
+		t.Fatalf("repo called with limit=%d offset=%d, want %d/0", repo.gotLimit, repo.gotOffset, defaultLimit)
 	}
 }
 

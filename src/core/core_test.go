@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"gonest-practice/src/modules/employeeModule"
 	"gonest-practice/src/modules/healthModule"
 )
 
@@ -23,13 +24,15 @@ func TestNew_LoadsSettings(t *testing.T) {
 	}
 }
 
-// TestNew_ServesFeatureAndSwaggerRoutes builds the full application via New and
-// exercises it end to end: the imported feature module's /health route is served,
-// and the Swagger module mounts an OpenAPI document that includes that route.
-// Building the app does not require a live database (GORM is opened with pinging
-// disabled), so this stays a pure composition-root test.
+// TestNew_ServesFeatureAndSwaggerRoutes builds the full application via New with
+// both feature modules and exercises it end to end: the /health route is served,
+// and the Swagger module mounts an OpenAPI document carrying the configured API
+// identity and documenting every feature route. Building the app does not require
+// a live database (GORM is opened with pinging disabled), so this stays a pure
+// composition-root test — hence it asserts /employees is documented rather than
+// issuing a request that would query the database.
 func TestNew_ServesFeatureAndSwaggerRoutes(t *testing.T) {
-	app, _, err := New(healthModule.HealthModule)
+	app, _, err := New(healthModule.HealthModule, employeeModule.EmployeeModule)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -45,20 +48,30 @@ func TestNew_ServesFeatureAndSwaggerRoutes(t *testing.T) {
 		t.Fatalf("GET /health = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	// The Swagger module serves an OpenAPI document that documents the feature
-	// route, proving controller route metadata flows into the generated spec.
+	// The Swagger module serves an OpenAPI document that carries the API identity
+	// and documents every feature route, proving controller route metadata flows
+	// into the generated spec.
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/swagger/json", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /swagger/json = %d, want %d", rec.Code, http.StatusOK)
 	}
 	var spec struct {
+		Info struct {
+			Title   string `json:"title"`
+			Version string `json:"version"`
+		} `json:"info"`
 		Paths map[string]json.RawMessage `json:"paths"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &spec); err != nil {
 		t.Fatalf("decoding OpenAPI spec: %v", err)
 	}
-	if _, ok := spec.Paths["/health"]; !ok {
-		t.Fatalf("OpenAPI paths missing /health: %v", spec.Paths)
+	if spec.Info.Title != apiTitle || spec.Info.Version != apiVersion {
+		t.Fatalf("OpenAPI info = %q %q, want %q %q", spec.Info.Title, spec.Info.Version, apiTitle, apiVersion)
+	}
+	for _, path := range []string{"/health", "/employees"} {
+		if _, ok := spec.Paths[path]; !ok {
+			t.Fatalf("OpenAPI paths missing %s: %v", path, spec.Paths)
+		}
 	}
 }

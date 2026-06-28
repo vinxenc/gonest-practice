@@ -10,12 +10,15 @@ import (
 // Controller registers and handles the employee module's HTTP routes.
 type Controller struct {
 	service *Service
+	logger  gonest.Logger
 }
 
-// EmployeeController constructs an employee Controller with its service (gonest
-// provider).
-func EmployeeController(service *Service) *Controller {
-	return &Controller{service: service}
+// EmployeeController constructs an employee Controller with its service and the
+// framework logger (both gonest providers). The logger lets the handler record
+// the underlying cause of a failure server-side while still returning a generic
+// error to the client.
+func EmployeeController(service *Service, logger gonest.Logger) *Controller {
+	return &Controller{service: service, logger: logger}
 }
 
 // Register wires the employee endpoints onto the given router and declares their
@@ -37,6 +40,9 @@ func (c *Controller) list(ctx gonest.Context) error {
 
 	result, err := c.service.List(ctx.Ctx(), limit, offset)
 	if err != nil {
+		// Log the root cause for observability, but return a generic message so
+		// internal error details are never exposed to the client.
+		c.logger.Error("failed to list employees: %v", err)
 		return gonest.NewInternalServerError("failed to list employees")
 	}
 
