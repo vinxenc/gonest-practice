@@ -1,13 +1,11 @@
 package gormModule
 
 import (
-	"context"
 	"fmt"
 	"time"
 
 	"gonest-practice/src/config"
 
-	"go.uber.org/fx"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -21,15 +19,15 @@ const (
 	connMaxIdleTime = 30 * time.Minute
 )
 
-// NewGorm provides a GORM database handle backed by PostgreSQL and ties its
-// connection pool to the fx lifecycle, closing it on shutdown.
+// NewGorm provides a GORM database handle backed by PostgreSQL.
 //
 // The handle is opened with automatic pinging disabled, so constructing it never
 // requires a reachable database: the underlying connection pool is established
 // lazily on first query. This keeps app startup (and tests that build the full
-// graph) independent of a live database, while real queries still surface
-// connection errors when they run.
-func NewGorm(lc fx.Lifecycle, settings *config.Settings) (*gorm.DB, error) {
+// DI graph) independent of a live database, while real queries still surface
+// connection errors when they run. *config.Settings is resolved from the DI
+// container, which gonest supplies from the shared configuration.
+func NewGorm(settings *config.Settings) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(settings.DatabaseDSN()), &gorm.Config{
 		DisableAutomaticPing: true,
 	})
@@ -47,11 +45,28 @@ func NewGorm(lc fx.Lifecycle, settings *config.Settings) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(connMaxLifetime)
 	sqlDB.SetConnMaxIdleTime(connMaxIdleTime)
 
-	lc.Append(fx.Hook{
-		OnStop: func(context.Context) error {
-			return sqlDB.Close()
-		},
-	})
-
 	return db, nil
+}
+
+// connection ties the shared *gorm.DB to the application lifecycle. gonest
+// resolves it alongside the other providers and invokes its OnApplicationShutdown
+// hook during graceful shutdown, where it closes the underlying connection pool.
+// Replaces the fx OnStop hook the previous fx-based wiring used.
+type connection struct {
+	db *gorm.DB
+}
+
+// newConnection wraps the shared handle so its pool is closed on shutdown.
+func newConnection(db *gorm.DB) *connection {
+	return &connection{db: db}
+}
+
+// OnApplicationShutdown closes the underlying connection pool. It implements the
+// gonest.OnApplicationShutdown lifecycle hook (the signal name is unused).
+func (c *connection) OnApplicationShutdown(string) error {
+	sqlDB, err := c.db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }

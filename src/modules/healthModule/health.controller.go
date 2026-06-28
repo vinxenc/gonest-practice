@@ -1,10 +1,9 @@
 package healthModule
 
 import (
-	"context"
 	"net/http"
 
-	"github.com/danielgtaylor/huma/v2"
+	"github.com/0xfurai/gonest"
 )
 
 // Controller registers and handles the health module's HTTP routes.
@@ -12,23 +11,22 @@ type Controller struct {
 	service *Service
 }
 
-// HealthController constructs a health Controller with its service (fx provider).
+// HealthController constructs a health Controller with its service (gonest
+// provider).
 func HealthController(service *Service) *Controller {
 	return &Controller{service: service}
 }
 
-// RegisterRoutes wires the health endpoints onto the given Huma API.
-func (c *Controller) RegisterRoutes(api huma.API) {
-	huma.Register(api, huma.Operation{
-		OperationID: "get-health",
-		Method:      http.MethodGet,
-		Path:        "/health",
-		Summary:     "Health check",
-		Description: "Returns the current health status of the service.",
-		Tags:        []string{"Health"},
-	}, func(ctx context.Context, input *struct{}) (*HealthOutput, error) {
-		resp := &HealthOutput{}
-		resp.Body.Status = c.service.Check()
-		return resp, nil
-	})
+// Register wires the health endpoints onto the given router and declares their
+// OpenAPI metadata (summary, tag, response schema) for the Swagger document.
+func (c *Controller) Register(r gonest.Router) {
+	r.Get("/health", c.check).
+		Summary("Health check").
+		Tags("Health").
+		Response(http.StatusOK, HealthResponse{})
+}
+
+// check handles GET /health.
+func (c *Controller) check(ctx gonest.Context) error {
+	return ctx.JSON(http.StatusOK, HealthResponse{Status: c.service.Check()})
 }

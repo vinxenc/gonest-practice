@@ -2,38 +2,38 @@ package healthModule
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
-	"github.com/danielgtaylor/huma/v2/humatest"
-	"go.uber.org/fx"
-	"go.uber.org/fx/fxtest"
-
-	"gonest-practice/src/core"
+	"github.com/0xfurai/gonest"
 )
 
-// TestHealthModule_ProvidesControllerToGroup verifies the module wiring: building
-// the HealthModule must contribute a controller into the "controllers" value
-// group whose routes register the /health endpoint.
-func TestHealthModule_ProvidesControllerToGroup(t *testing.T) {
-	var controllers []core.Controller
-	app := fxtest.New(t,
-		HealthModule,
-		fx.Invoke(fx.Annotate(
-			func(cs []core.Controller) { controllers = cs },
-			fx.ParamTags(`group:"controllers"`),
-		)),
-	)
-	defer app.RequireStop()
-	app.RequireStart()
-
-	if len(controllers) != 1 {
-		t.Fatalf("HealthModule contributed %d controllers, want 1", len(controllers))
+// TestHealthModule_RegistersHealthRoute verifies the module wiring: compiling the
+// exported HealthModule must resolve the Repository -> Service -> Controller graph
+// and register the GET /health route, which then serves a 200.
+func TestHealthModule_RegistersHealthRoute(t *testing.T) {
+	app := gonest.Create(HealthModule)
+	if err := app.Init(); err != nil {
+		t.Fatalf("initializing HealthModule app: %v", err)
 	}
 
-	// The contributed controller must register the /health route.
-	_, api := humatest.New(t)
-	controllers[0].RegisterRoutes(api)
-	if resp := api.Get("/health"); resp.Code != http.StatusOK {
-		t.Fatalf("module controller GET /health = %d, want %d", resp.Code, http.StatusOK)
+	// The module must have contributed exactly the /health route.
+	routes := app.GetRoutes()
+	var found bool
+	for _, r := range routes {
+		if r.Method == http.MethodGet && r.Path == "/health" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("HealthModule did not register GET /health; routes = %v", routes)
+	}
+
+	// And that route must be served by the compiled module.
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("module GET /health = %d, want %d", rec.Code, http.StatusOK)
 	}
 }

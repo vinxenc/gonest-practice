@@ -2,55 +2,52 @@ package employeeModule
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"testing"
 
+	"github.com/0xfurai/gonest"
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/danielgtaylor/huma/v2/humatest"
-	"go.uber.org/fx"
-	"go.uber.org/fx/fxtest"
-
-	"gonest-practice/src/core"
+	"gorm.io/gorm"
 )
 
-// TestEmployeeModule_ProvidesControllerToGroup verifies the module wiring:
-// building the EmployeeModule (with a stubbed *gorm.DB) must contribute a
-// controller into the "controllers" value group whose routes serve GET
-// /employees.
-func TestEmployeeModule_ProvidesControllerToGroup(t *testing.T) {
+// TestEmployeeModule_ServesEmployeesRoute verifies the module wiring: importing
+// the exported EmployeeModule alongside a (stubbed) *gorm.DB must resolve the
+// Repository -> Service -> Controller graph and serve GET /employees backed by
+// that database.
+func TestEmployeeModule_ServesEmployeesRoute(t *testing.T) {
 	db, mock := newMockDB(t)
 
-	var controllers []core.Controller
-	app := fxtest.New(t,
-		fx.Supply(db),
-		EmployeeModule,
-		fx.Invoke(fx.Annotate(
-			func(cs []core.Controller) { controllers = cs },
-			fx.ParamTags(`group:"controllers"`),
-		)),
-	)
-	defer app.RequireStop()
-	app.RequireStart()
+	// A global module supplies the stubbed *gorm.DB the employee repository
+	// depends on, mirroring how gormModule provides the real connection.
+	dbModule := gonest.NewModule(gonest.ModuleOptions{
+		Providers: []any{gonest.ProvideValue[*gorm.DB](db)},
+		Exports:   []any{(*gorm.DB)(nil)},
+		Global:    true,
+	})
+	root := gonest.NewModule(gonest.ModuleOptions{
+		Imports: []*gonest.Module{dbModule, EmployeeModule},
+	})
 
-	if len(controllers) != 1 {
-		t.Fatalf("EmployeeModule contributed %d controllers, want 1", len(controllers))
+	app := gonest.Create(root)
+	if err := app.Init(); err != nil {
+		t.Fatalf("initializing app: %v", err)
 	}
 
-	// The contributed controller must serve the /employees route, backed by the
-	// stubbed database.
+	// The controller must serve /employees, backed by the stubbed database.
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "employees"."employee"`)).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
 	mock.ExpectQuery(`SELECT \* FROM "employees"\."employee"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "first_name", "last_name", "gender"}))
 
-	_, api := humatest.New(t)
-	controllers[0].RegisterRoutes(api)
-	if resp := api.Get("/employees"); resp.Code != http.StatusOK {
-		t.Fatalf("module controller GET /employees = %d, want %d", resp.Code, http.StatusOK)
+	rec := httptest.NewRecorder()
+	app.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/employees", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("module controller GET /employees = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	// Confirm the fx-wired controller actually queried the injected *gorm.DB,
-	// so this test fails if it stops hitting the database.
+	// Confirm the wired controller actually queried the injected *gorm.DB, so this
+	// test fails if it stops hitting the database.
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet sqlmock expectations: %v", err)
 	}
