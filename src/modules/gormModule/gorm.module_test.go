@@ -1,6 +1,7 @@
 package gormModule
 
 import (
+	"strings"
 	"testing"
 
 	"gonest-practice/src/config"
@@ -52,7 +53,10 @@ func TestGormModule_ClosesPoolOnShutdown(t *testing.T) {
 	if err := app.Close(); err != nil {
 		t.Fatalf("app.Close returned error: %v", err)
 	}
-	if err := sqlDB.Ping(); err == nil {
-		t.Fatal("connection pool still usable after app.Close(), want it closed by the shutdown hook")
+	// Assert the specific closed-pool error (not just any failure), so the test
+	// catches the hook no longer firing rather than passing because Postgres is
+	// unreachable.
+	if err := sqlDB.Ping(); err == nil || !strings.Contains(err.Error(), errPoolClosed) {
+		t.Fatalf("Ping after app.Close() = %v, want %q", err, errPoolClosed)
 	}
 }

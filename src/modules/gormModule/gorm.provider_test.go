@@ -1,10 +1,16 @@
 package gormModule
 
 import (
+	"strings"
 	"testing"
 
 	"gonest-practice/src/config"
 )
+
+// errPoolClosed is the error database/sql reports for any use of a *sql.DB after
+// Close. Asserting it (rather than any error) distinguishes "the pool was closed"
+// from "the database is merely unreachable".
+const errPoolClosed = "sql: database is closed"
 
 // TestNewGorm verifies the provider returns a handle without requiring a live
 // database (automatic pinging is disabled).
@@ -38,8 +44,10 @@ func TestNewGorm(t *testing.T) {
 	}
 
 	// And the pool must actually be closed afterwards: a closed *sql.DB reports
-	// "sql: database is closed" on use, with no live database required.
-	if err := sqlDB.Ping(); err == nil {
-		t.Fatal("connection pool still usable after OnApplicationShutdown, want it closed")
+	// errPoolClosed on use, with no live database required. Asserting that
+	// specific error (not just any failure) ensures the test would catch the hook
+	// no longer closing the pool, rather than passing because Postgres is down.
+	if err := sqlDB.Ping(); err == nil || !strings.Contains(err.Error(), errPoolClosed) {
+		t.Fatalf("Ping after OnApplicationShutdown = %v, want %q", err, errPoolClosed)
 	}
 }
