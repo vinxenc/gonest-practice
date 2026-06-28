@@ -1,9 +1,10 @@
 # gonest-practice
 
-A [Fiber](https://gofiber.io/) web server in Go organized in a NestJS-style
-modular architecture, using [Uber fx](https://uber-go.github.io/fx/) for
-dependency injection, [Huma](https://huma.rocks/) for automatic OpenAPI
-generation, and [GORM](https://gorm.io/) for PostgreSQL data access.
+A Go HTTP server organized in a NestJS-style modular architecture, built on the
+[gonest](https://github.com/0xfurai/gonest) framework — which provides the
+dependency-injection container, module system, router, request pipeline,
+lifecycle hooks, and automatic OpenAPI/Swagger generation — with
+[GORM](https://gorm.io/) for PostgreSQL data access.
 
 ## Requirements
 
@@ -86,10 +87,11 @@ fails app startup with every offending variable reported at once.
 | `DB_NAME`     | string | `employees`  | PostgreSQL database name                 |
 | `DB_SSLMODE`  | string | `disable`    | libpq `sslmode` (e.g. `require`)         |
 
-`config.Load` is registered as an fx provider, so `Settings` is constructed (and
-validated) as part of the dependency graph — `core` injects it and the server
-binds to `Settings.Port`. To add a new setting, add a field with an `env` struct
-tag to `Settings`:
+`core.New` calls `config.Load` once at startup, then shares the validated
+`Settings` through gonest's DI container as a global value provider — every
+module resolves the same instance, and `main` derives the listen address from
+`Settings.Port`. To add a new setting, add a field with an `env` struct tag to
+`Settings`:
 
 ```go
 type Settings struct {
@@ -104,14 +106,15 @@ type Settings struct {
 | ------ | --------------- | ------------------------------------ | ----------------- |
 | GET    | `/health`       | Health check                         | `{"status":"ok"}` |
 | GET    | `/employees`    | List employees (offset pagination)   | JSON              |
-| GET    | `/docs`         | Swagger UI (interactive API docs)    | HTML              |
-| GET    | `/openapi.json` | Auto-generated OpenAPI 3.1 spec      | JSON              |
+| GET    | `/swagger`      | Swagger UI (interactive API docs)    | HTML              |
+| GET    | `/swagger/json` | Auto-generated OpenAPI 3.0 spec      | JSON              |
 
 `GET /employees` accepts `limit` (1–100, default 20) and `offset` (default 0)
 query parameters and returns the page plus pagination metadata.
 
-The OpenAPI spec and docs are generated automatically by Huma from the
-registered operations — no separate spec file to maintain.
+The OpenAPI spec and Swagger UI are generated automatically by gonest's swagger
+module from the route metadata each controller declares (`Summary`/`Tags`/
+`Response`) — no separate spec file to maintain.
 
 ```bash
 curl http://localhost:3000/health
@@ -124,10 +127,10 @@ curl "http://localhost:3000/employees?limit=2"
 ## Architecture
 
 The app follows a NestJS-style module layout. Each feature is a self-contained
-`fx.Module` with its own Repository → Service → Controller layers. Each module
-contributes its controller(s) to a `"controllers"` fx value group, and `core`
-collects the whole group and registers every route — so a module is wired up
-just by including it.
+gonest module (`gonest.NewModule`) with its own Repository → Service →
+Controller layers. A module lists its controllers in its `Controllers`, and
+gonest registers every controller's routes automatically when the module is
+imported — so a feature is wired up just by including it at the composition root.
 
 ```text
 .
@@ -136,26 +139,24 @@ just by including it.
 │   └── dump/                    # downloaded sample dump (git-ignored); restored via pg_restore
 ├── migrations/                  # golang-migrate SQL migrations (one per table)
 └── src/
-    ├── main.go                  # bootstraps via core.Server(...)
+    ├── main.go                  # bootstraps via core.New(...) + ListenAndServeWithGracefulShutdown
     ├── config/
-    │   └── settings.go          # env-validated Settings (go-env-validator) + fx provider
+    │   └── settings.go          # env-validated Settings (go-env-validator)
     ├── core/
-    │   ├── bootstrap.go         # core.Server factory + initServer (NestFactory-like)
-    │   ├── doc.go               # package design & rationale
-    │   ├── router.go            # Controller interface, AsController, registerRoutes
-    │   └── server.go            # Fiber + Huma providers and server lifecycle
+    │   ├── core.go              # composition root: core.New builds the gonest app (config + GORM + swagger + features)
+    │   └── doc.go               # package design & rationale
     └── modules/
         ├── gormModule/          # shared *gorm.DB (PostgreSQL) provider, reused by feature modules
-        │   ├── gorm.module.go       # fx.Module exposing the connection
-        │   └── gorm.provider.go     # NewGorm: opens GORM + lifecycle close
+        │   ├── gorm.module.go       # global gonest module exporting the connection
+        │   └── gorm.provider.go     # NewGorm + lifecycle close on shutdown
         ├── healthModule/        # example feature module
-        │   ├── health.module.go     # fx providers + AsController(HealthController)
-        │   ├── health.controller.go # registers Huma routes
+        │   ├── health.module.go     # gonest module: Controllers + providers
+        │   ├── health.controller.go # registers routes via Register(gonest.Router)
         │   ├── health.service.go    # business logic
         │   ├── health.repository.go # data-access layer
         │   └── health.dto.go        # request/response types
         └── employeeModule/      # Employees feature (GORM-backed)
-            ├── employee.module.go     # fx providers + AsController(EmployeeController)
+            ├── employee.module.go     # gonest module: Controllers + providers (gonest.Bind for the reader interface)
             ├── employee.controller.go # GET /employees route
             ├── employee.service.go    # business logic + pagination clamping
             ├── employee.repository.go # GORM data-access + EmployeeReader interface
@@ -163,66 +164,80 @@ just by including it.
             └── employee.dto.go        # request/response types
 ```
 
-### Dependency injection with fx
+### Dependency injection
 
-fx resolves each module's `Repository → Service → Controller` graph by type, so
-there is no hand-written intra-module wiring, and the server lifecycle
-(start/stop) is managed by fx hooks.
+gonest resolves each module's `Repository → Service → Controller` graph by type,
+so there is no hand-written intra-module wiring, and the HTTP server lifecycle
+(start/stop) is managed by the framework.
 
-`main.go` bootstraps the app with the `core.Server(...)` factory — analogous to
-NestJS's `NestFactory.create(AppModule)` — passing the feature modules, then
-calls `Run`. Including a module is all that's needed:
+`main.go` bootstraps the app with the `core.New(...)` factory — analogous to
+NestJS's `NestFactory.create(AppModule)` — which composes the infrastructure and
+feature modules under a single root module and returns the runnable
+`Application` plus the validated `Settings`. Including a module is all that's
+needed:
 
 ```go
 func main() {
-    app := core.Server(
-        gormModule.GormModule, // shared infrastructure module
+    app, settings, err := core.New(
         healthModule.HealthModule,
         employeeModule.EmployeeModule,
     )
-    app.Run()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    addr := fmt.Sprintf(":%d", settings.Port)
+    if err := app.ListenAndServeWithGracefulShutdown(addr); err != nil {
+        log.Fatal(err)
+    }
 }
 ```
 
-`core.Server` provides the Fiber + Huma server and registers a single
-`initServer` invoke, which collects every controller in the `"controllers"`
-group, triggers `registerRoutes`, and then ties the server to the fx lifecycle.
+`core.New` wires the shared infrastructure (the validated config and the GORM
+connection) and the swagger module, imports the feature modules, and builds the
+gonest `Application`. `main` then calls `ListenAndServeWithGracefulShutdown`,
+which compiles the module tree, registers every controller's routes, starts the
+HTTP server, and on SIGINT/SIGTERM runs the framework's shutdown hooks.
 
 ### Shared modules
 
-Infrastructure that several features need is its own `fx.Module`, included once
-at the composition root. `gormModule.GormModule` provides a single `*gorm.DB`
-(PostgreSQL) connection; because fx providers are application-wide, any other
+Infrastructure that several features need is its own gonest module, imported once
+at the composition root (inside `core.New`). `gormModule.GormModule` provides a
+single `*gorm.DB` (PostgreSQL) connection and is marked `Global`, so any other
 module reuses it just by declaring `*gorm.DB` as a constructor parameter — no
 re-wiring per module. This mirrors a NestJS global database module
 (`TypeOrmModule.forRoot()`). `employeeModule`'s repository depends on `*gorm.DB`
-and resolves the shared handle automatically.
+and resolves the shared handle automatically. The validated `*config.Settings`
+is shared the same way, as a global value provider, and its pool is closed
+cleanly on shutdown via the framework's `OnApplicationShutdown` hook.
 
 ### Route registration
 
-A controller is anything implementing `core.Controller`
-(`RegisterRoutes(api huma.API)`). A module contributes its controller to the
-`"controllers"` group with `core.AsController(...)`, and `core` registers every
-collected controller with a plain loop — no central list to maintain.
+A controller is anything implementing `gonest.Controller`
+(`Register(r gonest.Router)`). A module lists its controllers in
+`gonest.ModuleOptions.Controllers`, and gonest registers every collected
+controller's routes automatically — no central list to maintain.
 
 To add a new feature module:
 
 1. Create `src/modules/<name>Module/` with a Repository, Service, and a
-   Controller exposing `RegisterRoutes(api huma.API)`.
-2. Declare its `fx.Module`, wrapping the controller constructor with
-   `core.AsController(...)`:
+   Controller exposing `Register(r gonest.Router)`.
+2. Declare its gonest module, listing the controller and providers:
 
    ```go
-   var FooModule = fx.Module("FooModule",
-       fx.Provide(
-           NewFooRepository,
-           NewFooService,
-           core.AsController(NewFooController),
-       ),
-   )
+   var FooModule = gonest.NewModule(gonest.ModuleOptions{
+       Controllers: []any{FooController},
+       Providers: []any{
+           FooRepository,
+           FooService,
+       },
+   })
    ```
 
-3. Pass its `fx.Module` to `core.Server(...)` in `main.go`.
+   Use `gonest.Bind[Interface](Constructor)` in `Providers` to bind a
+   constructor to an interface, as `employeeModule` does so its service depends
+   on the `EmployeeReader` abstraction rather than the concrete repository.
+3. Pass its module to `core.New(...)` in `main.go`.
 
 ## Development
 
@@ -269,3 +284,5 @@ with the directory):
 go build -o bin/server ./src
 ./bin/server
 ```
+</content>
+</invoke>
