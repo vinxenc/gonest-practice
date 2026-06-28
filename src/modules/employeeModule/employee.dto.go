@@ -9,35 +9,24 @@ const (
 	maxLimit     = 100
 )
 
-// ListEmployeesInput is the query for GET /employees, with offset pagination.
-//
-// The service is the single source of truth for pagination bounds: out-of-range
-// values are clamped (not rejected), so no minimum/maximum is declared here —
-// that would make Huma reject the request before the service could clamp it. The
-// response echoes the effective limit/offset that were applied.
-type ListEmployeesInput struct {
-	Limit  int `query:"limit" default:"20" doc:"Maximum number of employees to return (clamped to 1-100)"`
-	Offset int `query:"offset" default:"0" doc:"Number of employees to skip (negative is treated as 0)"`
-}
-
 // EmployeeDTO is the API representation of an employee.
 type EmployeeDTO struct {
-	ID        int64  `json:"id" doc:"Employee identifier" example:"10001"`
-	BirthDate string `json:"birthDate" doc:"Date of birth (YYYY-MM-DD)" example:"1953-09-02"`
-	FirstName string `json:"firstName" doc:"Given name" example:"Georgi"`
-	LastName  string `json:"lastName" doc:"Family name" example:"Facello"`
-	Gender    string `json:"gender" doc:"Gender (M or F)" example:"M"`
-	HireDate  string `json:"hireDate" doc:"Date hired (YYYY-MM-DD)" example:"1986-06-26"`
+	ID        int64  `json:"id"`
+	BirthDate string `json:"birthDate"`
+	FirstName string `json:"firstName"`
+	LastName  string `json:"lastName"`
+	Gender    string `json:"gender"`
+	HireDate  string `json:"hireDate"`
 }
 
-// ListEmployeesOutput is the response body for GET /employees.
-type ListEmployeesOutput struct {
-	Body struct {
-		Employees []EmployeeDTO `json:"employees" doc:"Page of employees"`
-		Limit     int           `json:"limit" doc:"Page size that was applied"`
-		Offset    int           `json:"offset" doc:"Offset that was applied"`
-		Total     int64         `json:"total" doc:"Total number of employees"`
-	}
+// ListEmployeesResponse is the response body for GET /employees: a page of
+// employees together with the pagination that was actually applied (after the
+// service clamps the requested values) and the total row count.
+type ListEmployeesResponse struct {
+	Employees []EmployeeDTO `json:"employees"`
+	Limit     int           `json:"limit"`
+	Offset    int           `json:"offset"`
+	Total     int64         `json:"total"`
 }
 
 // toEmployeeDTO converts a persisted Employee into its API representation.

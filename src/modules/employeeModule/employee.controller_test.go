@@ -4,10 +4,30 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
-	"github.com/danielgtaylor/huma/v2/humatest"
+	"github.com/0xfurai/gonest"
 )
+
+// newControllerHandler builds a minimal gonest application exposing only the
+// employee controller, backed by the given fake reader, and returns its HTTP
+// handler for end-to-end request testing.
+func newControllerHandler(t *testing.T, repo *fakeReader) http.Handler {
+	t.Helper()
+	mod := gonest.NewModule(gonest.ModuleOptions{
+		Controllers: []any{EmployeeController},
+		Providers: []any{
+			EmployeeService,
+			gonest.Bind[EmployeeReader](func() *fakeReader { return repo }),
+		},
+	})
+	app := gonest.Create(mod)
+	if err := app.Init(); err != nil {
+		t.Fatalf("initializing app: %v", err)
+	}
+	return app.Handler()
+}
 
 // TestController_Construction verifies the controller constructor wires in the
 // provided service.
@@ -22,31 +42,23 @@ func TestController_Construction(t *testing.T) {
 	}
 }
 
-// TestController_ListEmployees registers the controller's routes on a test API
-// and exercises GET /employees end to end, asserting the status code and the
-// JSON body (employees plus pagination metadata).
+// TestController_ListEmployees exercises GET /employees end to end, asserting the
+// status code and the JSON body (employees plus pagination metadata).
 func TestController_ListEmployees(t *testing.T) {
 	repo := &fakeReader{
 		employees: []Employee{{ID: 10001, FirstName: "Georgi", LastName: "Facello", Gender: "M"}},
 		total:     300024,
 	}
-	c := EmployeeController(EmployeeService(repo))
+	h := newControllerHandler(t, repo)
 
-	_, api := humatest.New(t)
-	c.RegisterRoutes(api)
-
-	resp := api.Get("/employees")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("GET /employees status = %d, want %d", resp.Code, http.StatusOK)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/employees", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /employees status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var body struct {
-		Employees []EmployeeDTO `json:"employees"`
-		Limit     int           `json:"limit"`
-		Offset    int           `json:"offset"`
-		Total     int64         `json:"total"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+	var body ListEmployeesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decoding response body: %v", err)
 	}
 	if len(body.Employees) != 1 || body.Employees[0].ID != 10001 {
@@ -55,7 +67,7 @@ func TestController_ListEmployees(t *testing.T) {
 	if body.Total != 300024 {
 		t.Fatalf("total = %d, want 300024", body.Total)
 	}
-	// Huma applies the schema defaults for the query params.
+	// With no query params, the service applies its default page size.
 	if body.Limit != defaultLimit || body.Offset != 0 {
 		t.Fatalf("pagination = limit %d / offset %d, want %d / 0", body.Limit, body.Offset, defaultLimit)
 	}
@@ -70,21 +82,16 @@ func TestController_ListEmployees(t *testing.T) {
 // in the response pagination metadata.
 func TestController_ListEmployees_WithParams(t *testing.T) {
 	repo := &fakeReader{}
-	c := EmployeeController(EmployeeService(repo))
+	h := newControllerHandler(t, repo)
 
-	_, api := humatest.New(t)
-	c.RegisterRoutes(api)
-
-	resp := api.Get("/employees?limit=5&offset=15")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("GET /employees status = %d, want %d", resp.Code, http.StatusOK)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/employees?limit=5&offset=15", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /employees status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var body struct {
-		Limit  int `json:"limit"`
-		Offset int `json:"offset"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+	var body ListEmployeesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decoding response body: %v", err)
 	}
 	if body.Limit != 5 || body.Offset != 15 {
@@ -100,20 +107,16 @@ func TestController_ListEmployees_WithParams(t *testing.T) {
 // reaches the data layer and is echoed in the response.
 func TestController_ListEmployees_ClampsOutOfRange(t *testing.T) {
 	repo := &fakeReader{}
-	c := EmployeeController(EmployeeService(repo))
+	h := newControllerHandler(t, repo)
 
-	_, api := humatest.New(t)
-	c.RegisterRoutes(api)
-
-	resp := api.Get("/employees?limit=1000")
-	if resp.Code != http.StatusOK {
-		t.Fatalf("GET /employees status = %d, want %d", resp.Code, http.StatusOK)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/employees?limit=1000", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /employees status = %d, want %d", rec.Code, http.StatusOK)
 	}
 
-	var body struct {
-		Limit int `json:"limit"`
-	}
-	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
+	var body ListEmployeesResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decoding response body: %v", err)
 	}
 	if body.Limit != maxLimit {
@@ -127,12 +130,11 @@ func TestController_ListEmployees_ClampsOutOfRange(t *testing.T) {
 // TestController_ListEmployees_ServiceError verifies a data-layer failure
 // surfaces as a 500.
 func TestController_ListEmployees_ServiceError(t *testing.T) {
-	c := EmployeeController(EmployeeService(&fakeReader{err: errors.New("db down")}))
+	h := newControllerHandler(t, &fakeReader{err: errors.New("db down")})
 
-	_, api := humatest.New(t)
-	c.RegisterRoutes(api)
-
-	if resp := api.Get("/employees"); resp.Code != http.StatusInternalServerError {
-		t.Fatalf("GET /employees status = %d, want %d", resp.Code, http.StatusInternalServerError)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/employees", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("GET /employees status = %d, want %d", rec.Code, http.StatusInternalServerError)
 	}
 }

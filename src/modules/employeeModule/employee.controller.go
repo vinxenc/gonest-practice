@@ -1,10 +1,10 @@
 package employeeModule
 
 import (
-	"context"
 	"net/http"
+	"strconv"
 
-	"github.com/danielgtaylor/huma/v2"
+	"github.com/0xfurai/gonest"
 )
 
 // Controller registers and handles the employee module's HTTP routes.
@@ -12,37 +12,50 @@ type Controller struct {
 	service *Service
 }
 
-// EmployeeController constructs an employee Controller with its service (fx
+// EmployeeController constructs an employee Controller with its service (gonest
 // provider).
 func EmployeeController(service *Service) *Controller {
 	return &Controller{service: service}
 }
 
-// RegisterRoutes wires the employee endpoints onto the given Huma API.
-func (c *Controller) RegisterRoutes(api huma.API) {
-	huma.Register(api, huma.Operation{
-		OperationID: "list-employees",
-		Method:      http.MethodGet,
-		Path:        "/employees",
-		Summary:     "List employees",
-		Description: "Returns a paginated list of employees ordered by id.",
-		Tags:        []string{"Employees"},
-	}, c.list)
+// Register wires the employee endpoints onto the given router and declares their
+// OpenAPI metadata (summary, tag, response schema) for the Swagger document.
+func (c *Controller) Register(r gonest.Router) {
+	r.Get("/employees", c.list).
+		Summary("List employees").
+		Tags("Employees").
+		Response(http.StatusOK, ListEmployeesResponse{})
 }
 
-// list handles GET /employees.
-func (c *Controller) list(ctx context.Context, input *ListEmployeesInput) (*ListEmployeesOutput, error) {
-	result, err := c.service.List(ctx, input.Limit, input.Offset)
+// list handles GET /employees. The limit/offset query parameters are advisory:
+// the service is the single source of truth for pagination bounds and clamps
+// out-of-range values rather than rejecting them, so the response echoes the
+// effective limit/offset that were actually applied.
+func (c *Controller) list(ctx gonest.Context) error {
+	limit := queryInt(ctx, "limit")
+	offset := queryInt(ctx, "offset")
+
+	result, err := c.service.List(ctx.Ctx(), limit, offset)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to list employees", err)
+		return gonest.NewInternalServerError("failed to list employees")
 	}
 
-	resp := &ListEmployeesOutput{}
-	resp.Body.Employees = toEmployeeDTOs(result.Employees)
-	// Echo the pagination the service actually applied (after clamping), not the
-	// raw request values.
-	resp.Body.Limit = result.Limit
-	resp.Body.Offset = result.Offset
-	resp.Body.Total = result.Total
-	return resp, nil
+	return ctx.JSON(http.StatusOK, ListEmployeesResponse{
+		Employees: toEmployeeDTOs(result.Employees),
+		Limit:     result.Limit,
+		Offset:    result.Offset,
+		Total:     result.Total,
+	})
+}
+
+// queryInt reads a query parameter as an int, returning 0 when it is absent or
+// not a valid integer. The service clamps 0 to its default, so a missing or
+// malformed value is treated as "unspecified" rather than an error — preserving
+// the endpoint's clamp-don't-reject contract.
+func queryInt(ctx gonest.Context, name string) int {
+	v, err := strconv.Atoi(ctx.Query(name))
+	if err != nil {
+		return 0
+	}
+	return v
 }

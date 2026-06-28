@@ -4,15 +4,11 @@ import (
 	"testing"
 
 	"gonest-practice/src/config"
-
-	"go.uber.org/fx/fxtest"
 )
 
 // TestNewGorm verifies the provider returns a handle without requiring a live
-// database (automatic pinging is disabled) and registers a lifecycle hook that
-// closes the connection pool on stop.
+// database (automatic pinging is disabled).
 func TestNewGorm(t *testing.T) {
-	lc := fxtest.NewLifecycle(t)
 	settings := &config.Settings{
 		DBHost:     "localhost",
 		DBPort:     5432,
@@ -22,7 +18,7 @@ func TestNewGorm(t *testing.T) {
 		DBSSLMode:  "disable",
 	}
 
-	db, err := NewGorm(lc, settings)
+	db, err := NewGorm(settings)
 	if err != nil {
 		t.Fatalf("NewGorm returned error: %v", err)
 	}
@@ -30,7 +26,9 @@ func TestNewGorm(t *testing.T) {
 		t.Fatal("NewGorm returned nil db")
 	}
 
-	// Start then stop runs the registered OnStop hook, closing the (never
-	// connected) connection pool cleanly.
-	lc.RequireStart().RequireStop()
+	// The lifecycle wrapper closes the (never-connected) connection pool cleanly
+	// when gonest runs its OnApplicationShutdown hook on shutdown.
+	if err := newConnection(db).OnApplicationShutdown(""); err != nil {
+		t.Fatalf("OnApplicationShutdown returned error: %v", err)
+	}
 }
