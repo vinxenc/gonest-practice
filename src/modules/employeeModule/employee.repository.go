@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
 
@@ -26,20 +27,34 @@ func EmployeeRepository(db *gorm.DB) *Repository {
 }
 
 // List returns a page of employees ordered by id, along with the total number of
-// employees for pagination metadata.
+// employees for pagination metadata. The count and the page are independent
+// reads against the connection pool, so they run concurrently via errgroup.
+// A plain (non-WithContext) group is used deliberately: the two queries don't
+// depend on each other, so one failing shouldn't cancel the other mid-flight.
 func (r *Repository) List(ctx context.Context, limit, offset int) ([]Employee, int64, error) {
 	var total int64
-	if err := r.db.WithContext(ctx).Model(&Employee{}).Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("counting employees: %w", err)
-	}
-
 	var employees []Employee
-	if err := r.db.WithContext(ctx).
-		Order("id").
-		Limit(limit).
-		Offset(offset).
-		Find(&employees).Error; err != nil {
-		return nil, 0, fmt.Errorf("listing employees: %w", err)
+	var g errgroup.Group
+
+	g.Go(func() error {
+		if err := r.db.WithContext(ctx).Model(&Employee{}).Count(&total).Error; err != nil {
+			return fmt.Errorf("counting employees: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		if err := r.db.WithContext(ctx).
+			Order("id").
+			Limit(limit).
+			Offset(offset).
+			Find(&employees).Error; err != nil {
+			return fmt.Errorf("listing employees: %w", err)
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, 0, err
 	}
 
 	return employees, total, nil

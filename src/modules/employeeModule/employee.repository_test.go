@@ -27,6 +27,11 @@ func newMockDB(t *testing.T) (*gorm.DB, sqlmock.Sqlmock) {
 	if err != nil {
 		t.Fatalf("opening gorm over sqlmock: %v", err)
 	}
+
+	// List runs the count and the page query concurrently, so they may reach
+	// the mock in either order.
+	mock.MatchExpectationsInOrder(false)
+
 	return db, mock
 }
 
@@ -64,14 +69,18 @@ func TestRepository_List(t *testing.T) {
 	}
 }
 
-// TestRepository_List_CountError verifies a failing count query is wrapped and
-// returned.
+// TestRepository_List_CountError verifies a failing count query, alongside a
+// succeeding find, is wrapped and returned.
 func TestRepository_List_CountError(t *testing.T) {
 	db, mock := newMockDB(t)
 	repo := EmployeeRepository(db)
 
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT count(*) FROM "employees"."employee"`)).
 		WillReturnError(context.DeadlineExceeded)
+	mock.ExpectQuery(`SELECT \* FROM "employees"\."employee"`).
+		WillReturnRows(sqlmock.NewRows(
+			[]string{"id", "birth_date", "first_name", "last_name", "gender", "hire_date"},
+		))
 
 	if _, _, err := repo.List(context.Background(), 20, 0); err == nil {
 		t.Fatal("List() = nil error, want count error")
@@ -81,8 +90,8 @@ func TestRepository_List_CountError(t *testing.T) {
 	}
 }
 
-// TestRepository_List_FindError verifies a failing select (after a successful
-// count) is wrapped and returned.
+// TestRepository_List_FindError verifies a failing select, alongside a
+// succeeding count, is wrapped and returned.
 func TestRepository_List_FindError(t *testing.T) {
 	db, mock := newMockDB(t)
 	repo := EmployeeRepository(db)
