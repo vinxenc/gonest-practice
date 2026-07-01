@@ -6,6 +6,7 @@ require (
 	github.com/0xfurai/gonest v0.1.0
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/philiprehberger/go-env-validator v0.3.2
+	golang.org/x/sync v0.20.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.2
 )
@@ -245,7 +246,6 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260209203927-2842357ff358 // indirect
 	golang.org/x/mod v0.35.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/term v0.42.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
